@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moi.net</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="stage-wrap">
+    <div class="bezel" id="bezel">
+      <div class="brandrow"><span class="brand">PC-89</span><div class="led"></div></div>
+
+      <div class="screenshell">
+        <div class="screen">
+
+          <div id="view-desktop" class="desktop-icons">
+            <div class="icontile" data-open="profile">
+              <svg width="34" height="34" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="4" fill="#dbe6f5" stroke="#33465c" stroke-width="1.2"/><circle cx="17" cy="13" r="6" fill="#f2c48a" stroke="#8a5a2a" stroke-width="1"/><path d="M6 29c1.5-7 8-9 11-9s9.5 2 11 9" fill="#3b6fa8" stroke="#20456e" stroke-width="1"/></svg>
+              <span class="iconlabel">프로필</span>
+            </div>
+            <div class="icontile" data-open="chat">
+              <svg width="34" height="34" viewBox="0 0 34 34"><path d="M3 6h28v16H14l-6 6v-6H3z" fill="#ffd23f" stroke="#8a6a12" stroke-width="1.2"/><circle cx="10" cy="14" r="1.6" fill="#5a4408"/><circle cx="17" cy="14" r="1.6" fill="#5a4408"/><circle cx="24" cy="14" r="1.6" fill="#5a4408"/></svg>
+              <span class="iconlabel">moi.net</span>
+            </div>
+            <div class="icontile" data-open="search">
+              <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="14" cy="14" r="9" fill="#eaf4ff" stroke="#2a4a6b" stroke-width="2.4"/><line x1="21" y1="21" x2="30" y2="30" stroke="#2a4a6b" stroke-width="3.4" stroke-linecap="round"/></svg>
+              <span class="iconlabel">검색</span>
+            </div>
+            <div class="icontile" data-open="folder">
+              <svg width="34" height="30" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width="0.6"/></svg>
+              <span class="iconlabel">내 폴더</span>
+            </div>
+            <div class="icontile" data-open="internet">
+              <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="#3b7dd8" stroke="#1c3f6e" stroke-width="1.4"/><ellipse cx="17" cy="17" rx="14" ry="6" fill="none" stroke="#cfe4ff" stroke-width="1"/><ellipse cx="17" cy="17" rx="6" ry="14" fill="none" stroke="#cfe4ff" stroke-width="1"/><line x1="3" y1="17" x2="31" y2="17" stroke="#cfe4ff" stroke-width="1"/></svg>
+              <span class="iconlabel">인터넷</span>
+            </div>
+          </div>
+
+          <div id="view-profile" class="win hidden">
+            <div class="titlebar">
+              <span>내 프로필</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1;">
+              <div style="display:flex;justify-content:center;">
+                <svg width="64" height="64" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="6" fill="#dbe6f5" stroke="#33465c" stroke-width="1.2"/><circle cx="17" cy="13" r="6" fill="#f2c48a" stroke="#8a5a2a" stroke-width="1"/><path d="M6 29c1.5-7 8-9 11-9s9.5 2 11 9" fill="#3b6fa8" stroke="#20456e" stroke-width="1"/></svg>
+              </div>
+              <div class="sunken">
+                <div class="fieldrow"><span>이름</span><strong>사용자01</strong></div>
+                <div class="fieldrow"><span>직업</span><strong>시스템 관리자</strong></div>
+                <div class="fieldrow"><span>가입일</span><strong>1989.09.07</strong></div>
+                <div class="fieldrow" style="border-bottom:none;"><span>상태</span><strong style="color:#0a7d2c;">온라인</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="view-chat" class="win hidden">
+            <div class="titlebar">
+              <span>moi.net</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div class="sunken chatlog" id="chat-log"></div>
+            <div style="display:flex;gap:6px;padding:8px;">
+              <input id="chat-input" class="chatinput" placeholder="메시지를 입력하세요..." autocomplete="off">
+              <div class="toolbtn sendbtn" id="chat-send">보내기</div>
+            </div>
+          </div>
+
+          <div id="view-search" class="win hidden">
+            <div class="titlebar">
+              <span>검색</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div style="display:flex;gap:6px;padding:10px;">
+              <div class="sunken" style="flex:1;padding:6px 8px;font-size:12px;color:#888;">pc-89 소식</div>
+              <div class="toolbtn" style="width:34px;">
+                <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.4" fill="none" stroke="#333" stroke-width="1.6"/><line x1="9.2" y1="9.2" x2="13" y2="13" stroke="#333" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </div>
+            </div>
+            <div class="sunken" style="flex:1;margin:0 10px 10px;padding:10px;display:flex;flex-direction:column;gap:12px;overflow:hidden;">
+              <div>
+                <div class="result-title">PC-89 사용자 모임 - 최신 소식과 팁</div>
+                <div class="result-url">www.pc89-club.net</div>
+                <div class="result-snip">우리 모임에 오신 걸 환영합니다. 최신 소프트웨어 소식을 확인하세요.</div>
+              </div>
+              <div>
+                <div class="result-title">오늘의 날씨 정보</div>
+                <div class="result-url">weather.pc89.net</div>
+                <div class="result-snip">전국 날씨와 기온 정보를 안내합니다.</div>
+              </div>
+              <div>
+                <div class="result-title">레트로 게임 다운로드 자료실</div>
+                <div class="result-url">games.pc89.net</div>
+                <div class="result-snip">고전 PC 게임을 무료로 내려받을 수 있는 자료실입니다.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="view-folder" class="win hidden">
+            <div class="titlebar">
+              <span>내 폴더 - C:\MYDOCS</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div class="sunken" style="flex:1;margin:8px;padding:8px;display:flex;flex-wrap:wrap;align-content:flex-start;overflow:hidden;">
+              <div class="fileicon">
+                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/></svg>
+                일기.txt
+              </div>
+              <div class="fileicon">
+                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/></svg>
+                메모.txt
+              </div>
+              <div class="fileicon">
+                <svg width="16" height="18" viewBox="0 0 12 14"><rect x="0" y="0" width="12" height="14" rx="1" fill="#bfe4f5" stroke="#2a6a8a"/><circle cx="4" cy="5" r="1.4" fill="#ffd23f"/><path d="M0 11l4-4 3 3 3-4 2 2v3z" fill="#7bbf6a"/></svg>
+                사진.jpg
+              </div>
+              <div class="fileicon">
+                <svg width="14" height="12" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width=".6"/></svg>
+                다운로드
+              </div>
+              <div class="fileicon">
+                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/><circle cx="5" cy="9" r="2.4" fill="none" stroke="#555" stroke-width=".8"/></svg>
+                음악.mp3
+              </div>
+              <div class="fileicon">
+                <svg width="16" height="18" viewBox="0 0 12 14"><rect x="0" y="0" width="12" height="14" rx="1" fill="#f5d9c8" stroke="#8a5a2a"/></svg>
+                졸업사진.bmp
+              </div>
+            </div>
+          </div>
+
+          <div id="view-internet" class="win hidden">
+            <div class="titlebar">
+              <span>인터넷 브라우저</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div style="display:flex;gap:3px;padding:6px 6px 4px;">
+              <div class="toolbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M8 1 2 6l6 5z" fill="#000"/></svg></div>
+              <div class="toolbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M4 1l6 5-6 5z" fill="#000"/></svg></div>
+              <div class="toolbtn"><svg width="13" height="13" viewBox="0 0 13 13"><path d="M2 6.5A4.5 4.5 0 1 1 4 10" fill="none" stroke="#000" stroke-width="1.4"/><path d="M2 3v3.5h3.5" fill="none" stroke="#000" stroke-width="1.4"/></svg></div>
+              <div class="toolbtn"><svg width="13" height="12" viewBox="0 0 13 12"><path d="M6.5 1 12 6l-2 0v5H2.5V6h-2z" fill="#000"/></svg></div>
+              <div class="sunken" style="flex:1;padding:5px 8px;font-size:11px;color:#333;">http://www.pc89.net/home.htm</div>
+            </div>
+            <div class="sunken" style="flex:1;margin:0 8px 8px;padding:14px;overflow:hidden;">
+              <p style="margin:0;font-family:Georgia,serif;font-size:16px;font-weight:700;color:#000080;">PC-89 홈페이지에 오신 것을 환영합니다!</p>
+              <hr style="border:none;border-top:2px solid #808080;margin:8px 0;">
+              <ul style="margin:0;padding-left:18px;font-size:12px;color:#1a4fd6;line-height:2;">
+                <li><a href="#">소개</a></li>
+                <li><a href="#">게시판</a></li>
+                <li><a href="#">자료실</a></li>
+                <li><a href="#">방명록</a></li>
+              </ul>
+              <p style="margin-top:14px;font-size:10.5px;color:#555;">누적 방문자: 001234</p>
+            </div>
+          </div>
+
+          <div class="taskbar">
+            <div class="startbtn">
+              <svg width="13" height="13" viewBox="0 0 13 13"><rect x="0" y="0" width="6" height="6" fill="#d94b3a"/><rect x="7" y="0" width="6" height="6" fill="#5aa93a"/><rect x="0" y="7" width="6" height="6" fill="#3a7ed9"/><rect x="7" y="7" width="6" height="6" fill="#e0b930"/></svg>
+              시작
+            </div>
+            <div class="taskapp-area" id="taskapp-area"></div>
+            <div class="clock">오후 3:47</div>
+          </div>
+
+          <div class="scanlines"></div>
+          <div class="vignette"></div>
+        </div>
+      </div>
+
+      <div class="controls"><div class="slit"></div><div class="knob"></div></div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
