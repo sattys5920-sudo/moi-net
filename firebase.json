@@ -5,7 +5,18 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
+      "functions/**",
       "README.md"
+    ],
+    "rewrites": [
+      { "source": "/api/gameChat", "function": "gameChat" }
     ]
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs20"
+    }
+  ]
 }

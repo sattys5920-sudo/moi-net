@@ -21,7 +21,8 @@ function openScreen(name) {
   label.className = 'taskapp';
   label.textContent = TITLES[name];
   taskappArea.appendChild(label);
-  if (name === 'folder') renderNotebook();
+  if (name === 'chat') renderRoster();
+  if (name === 'folder') openNotebook();
   if (name === 'accuse') renderAccuse();
 }
 
@@ -38,10 +39,57 @@ document.querySelectorAll('[data-close]').forEach((el) => {
   el.addEventListener('click', closeToDesktop);
 });
 
-// ===== moi.net 채팅방 (실종 전날 로그 + 자유 채팅) =====
+// ===== LAST LOG : 게임 상태 =====
+const ROSTER = ['모카', '잭', '유령', '복숭아', '레몬', '검은고양이'];
+const API_URL = '/api/gameChat';
+
+const DAY_INTRO = {
+  1: '실종 첫날. 라임이 사라졌다는 사실만 확인된 상태다.',
+  2: 'DAY 2. 라임 계정이 실종 이후에도 움직였다는 소문이 돈다.',
+  3: 'DAY 3. 사람마다 다른 정보를 들었다는 이야기가 나오기 시작한다.',
+  4: 'DAY 4. 숨겨왔던 사실들이 하나씩 드러날 조짐이 보인다.',
+  5: 'DAY 5. 라임의 마지막 흔적을 정리할 시간이다.',
+};
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('lastlog-state');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(
+      'lastlog-state',
+      JSON.stringify({ day: state.day, nickname: state.nickname, threads: state.threads })
+    );
+  } catch (e) {}
+}
+
+const saved = loadState();
+const state = saved || {
+  day: 1,
+  nickname: null,
+  currentView: 'group',
+  threads: {
+    group: { history: [], trust: 0 },
+    모카: { history: [], trust: 0 },
+    잭: { history: [], trust: 0 },
+    유령: { history: [], trust: 0 },
+    복숭아: { history: [], trust: 0 },
+    레몬: { history: [], trust: 0 },
+    검은고양이: { history: [], trust: 0 },
+  },
+};
+state.currentView = 'group';
+
 const chatLog = document.getElementById('chat-log');
 const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
+const rosterEl = document.getElementById('roster');
+const dayTag = document.getElementById('day-tag');
 
 const OTHER_AVATAR_SVG =
   '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="6" r="3" fill="#f2c48a"/><path d="M2 15c1-4 4-5 6-5s5 1 6 5" fill="#3b6fa8"/></svg>';
@@ -85,207 +133,301 @@ function addMessage(from, text, name) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function sendMessage() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-  addMessage('me', text);
-  chatInput.value = '';
+function addSysLine(text) {
+  const line = document.createElement('div');
+  line.className = 'sys-line';
+  line.textContent = text;
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-chatSend.addEventListener('click', sendMessage);
+function addLoadingLine() {
+  const line = document.createElement('div');
+  line.className = 'loading-line';
+  line.id = 'loading-line';
+  line.textContent = '...(응답 기다리는 중)';
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return line;
+}
+
+function renderRoster() {
+  rosterEl.innerHTML = '';
+  const groupBtn = document.createElement('div');
+  groupBtn.className = 'roster-btn' + (state.currentView === 'group' ? ' active' : '');
+  groupBtn.textContent = '그룹채팅';
+  groupBtn.addEventListener('click', () => switchView('group'));
+  rosterEl.appendChild(groupBtn);
+
+  ROSTER.forEach((name) => {
+    const btn = document.createElement('div');
+    btn.className = 'roster-btn' + (state.currentView === name ? ' active' : '');
+    btn.textContent = name;
+    btn.addEventListener('click', () => switchView(name));
+    rosterEl.appendChild(btn);
+  });
+  dayTag.textContent = 'DAY ' + state.day;
+}
+
+function switchView(view) {
+  state.currentView = view;
+  renderRoster();
+  chatLog.innerHTML = '';
+  if (view === 'group') {
+    addSysLine('[새벽 2시 그룹채팅방]');
+  } else {
+    addSysLine('[' + view + ' 접속 중...]');
+  }
+  const th = state.threads[view];
+  th.history.forEach((m) => {
+    if (m.role === 'user') addMessage('me', m.content);
+    else renderAssistantMessage(view, m.content);
+  });
+}
+
+function renderAssistantMessage(view, text) {
+  if (view === 'group') {
+    text.split('\n').forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const m = trimmed.match(/^([^:：]{1,10})[:：]\s*(.+)$/);
+      if (m) addMessage('other', m[2], m[1]);
+      else addSysLine(trimmed);
+    });
+  } else {
+    addMessage('other', text, view);
+  }
+}
+
+async function callAPI(payload) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('API error ' + res.status);
+  const data = await res.json();
+  return data.reply;
+}
+
+function transcriptDump() {
+  const parts = [];
+  const g = state.threads.group.history;
+  if (g.length) {
+    parts.push('[그룹채팅방 기록]');
+    g.forEach((m) => parts.push((m.role === 'user' ? state.nickname + ': ' : '') + m.content));
+  }
+  ROSTER.forEach((name) => {
+    const h = state.threads[name].history;
+    if (h.length) {
+      parts.push('[' + name + '와의 개인채팅 기록]');
+      h.forEach((m) => parts.push((m.role === 'user' ? state.nickname + ': ' : name + ': ') + m.content));
+    }
+  });
+  return parts.join('\n');
+}
+
+function showIntro() {
+  chatLog.innerHTML = '';
+  addSysLine('새벽 2시 채팅방에 입장했습니다. 현재 접속자 13명.');
+  ROSTER.concat(['라임']).forEach((n) => addSysLine(n));
+  addSysLine('그리고 당신.');
+  addSysLine('23:58 모카: "라임?"');
+  addSysLine('00:01 잭: "아직 안 왔는데?"');
+  addSysLine('00:03 복숭아: "오늘 아예 안 오는 거 아님?"');
+  addSysLine('00:05 모카: "얘 원래 이 시간엔 꼭 오는데."');
+  addSysLine('[라임님의 마지막 접속: 18시간 전]');
+}
+
+function ensureNickname() {
+  if (state.nickname) return false;
+  let nick = '';
+  while (!nick) {
+    nick = (window.prompt('닉네임을 입력하세요 (새벽 2시 채팅방에서 쓸 이름):') || '').trim();
+  }
+  state.nickname = nick;
+  saveState();
+  return true;
+}
+
+async function handleSend() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = '';
+
+  if (text === '오늘은 여기까지') {
+    if (state.day < 5) state.day++;
+    switchView(state.currentView);
+    addSysLine('=== DAY ' + state.day + ' ===');
+    addSysLine(DAY_INTRO[state.day] || '');
+    saveState();
+    return;
+  }
+
+  if (ROSTER.includes(text)) {
+    switchView(text);
+    return;
+  }
+  if (text === '그룹채팅' || text === '그룹') {
+    switchView('group');
+    return;
+  }
+
+  addMessage('me', text);
+
+  let mode = state.currentView === 'group' ? 'group' : 'dm';
+  let npcId = state.currentView === 'group' ? undefined : state.currentView;
+  let apiInput = text;
+  let useThreadHistory = true;
+
+  if (/^검색\s*/.test(text)) {
+    mode = 'search';
+    apiInput = text.replace(/^검색\s*/, '');
+    useThreadHistory = false;
+  } else if (text === '정리해줘') {
+    mode = 'summary';
+    apiInput = '[전체 기록]\n' + transcriptDump() + '\n\n플레이어 명령: 정리해줘';
+    useThreadHistory = false;
+  } else if (text === '힌트') {
+    mode = 'hint';
+    useThreadHistory = false;
+  }
+
+  const loadingEl = addLoadingLine();
+  try {
+    const thread = useThreadHistory ? state.threads[state.currentView] : null;
+    const reply = await callAPI({
+      mode,
+      day: state.day,
+      npcId,
+      trust: thread ? thread.trust : undefined,
+      history: thread ? thread.history : [],
+      playerInput: apiInput,
+    });
+    loadingEl.remove();
+
+    if (useThreadHistory) {
+      thread.history.push({ role: 'user', content: text });
+      thread.history.push({ role: 'assistant', content: reply });
+      thread.trust = Math.min(10, thread.trust + 1);
+      renderAssistantMessage(state.currentView, reply);
+    } else {
+      addMessage('other', reply, mode === 'search' ? '검색결과' : mode === 'summary' ? '정리' : '힌트');
+    }
+    saveState();
+  } catch (e) {
+    loadingEl.remove();
+    addSysLine('(오류: 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.)');
+    console.error(e);
+  }
+}
+
+chatSend.addEventListener('click', handleSend);
 chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendMessage();
+  if (e.key === 'Enter') handleSend();
 });
 
-CHATLOG_SEED.forEach((m) => addMessage(m.from, m.text, m.name));
-
-// ===== 검색 (수사 시스템) =====
+// ===== 검색 앱 (moi.net과 별개 진입점, 같은 백엔드 사용) =====
 const searchInput = document.getElementById('search-input');
 const searchGo = document.getElementById('search-go');
 const searchResults = document.getElementById('search-results');
 
-const foundClueIds = new Set();
-const revealedKeywords = new Set();
-
-function norm(s) {
-  return s.trim().toLowerCase();
-}
-
-function requirementsMet(clue) {
-  return clue.requires.every((id) => foundClueIds.has(id));
-}
-
-function matchesQuery(clue, q) {
-  return clue.keywords.some((k) => {
-    const nk = norm(k);
-    if (q.includes(nk)) return true; // 검색어가 키워드 전체를 포함 (조합 키워드는 이 방향만 허용)
-    if (!nk.includes(' ') && nk.includes(q)) return true; // 단일 단어 키워드는 일부만 입력해도 매칭
-    return false;
-  });
-}
-
-function renderSearchResults(query) {
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
   searchResults.innerHTML = '';
-  const q = norm(query);
-
-  if (!q) {
-    const hint = document.createElement('div');
-    hint.className = 'clue-empty';
-    hint.textContent = '검색어를 입력해 조사를 시작하세요. (예: 실종자의 닉네임)';
-    searchResults.appendChild(hint);
-    return;
+  const loading = document.createElement('div');
+  loading.className = 'loading-line';
+  loading.textContent = '검색 중...';
+  searchResults.appendChild(loading);
+  try {
+    const reply = await callAPI({ mode: 'search', day: state.day, history: [], playerInput: q });
+    loading.remove();
+    const box = document.createElement('div');
+    box.className = 'clue-body';
+    box.style.whiteSpace = 'pre-line';
+    box.textContent = reply;
+    searchResults.appendChild(box);
+  } catch (e) {
+    loading.remove();
+    const err = document.createElement('div');
+    err.className = 'clue-empty';
+    err.textContent = '검색 서버에 연결할 수 없습니다.';
+    searchResults.appendChild(err);
   }
-
-  const matched = CLUES.filter((c) => requirementsMet(c) && matchesQuery(c, q));
-
-  if (matched.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'clue-empty';
-    empty.textContent = '"' + query + '"에 대한 검색 결과가 없습니다. 다른 키워드로 시도해 보세요.';
-    searchResults.appendChild(empty);
-    return;
-  }
-
-  matched.forEach((clue) => {
-    const isNew = !foundClueIds.has(clue.id);
-    foundClueIds.add(clue.id);
-    clue.reveals.forEach((k) => revealedKeywords.add(k));
-
-    const card = document.createElement('div');
-    card.className = 'clue-card';
-    const title = document.createElement('div');
-    title.className = 'clue-title';
-    title.textContent = (isNew ? '🆕 ' : '') + clue.title;
-    const body = document.createElement('div');
-    body.className = 'clue-body';
-    body.textContent = clue.body;
-    card.appendChild(title);
-    card.appendChild(body);
-    if (clue.reveals.length) {
-      const kw = document.createElement('div');
-      kw.style.fontSize = '10.5px';
-      kw.style.color = '#3f6b4a';
-      kw.style.marginTop = '3px';
-      kw.textContent = '새 검색어: ' + clue.reveals.join(', ');
-      card.appendChild(kw);
-    }
-    searchResults.appendChild(card);
-  });
 }
-
-function runSearch() {
-  renderSearchResults(searchInput.value);
-}
-
 searchGo.addEventListener('click', runSearch);
 searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') runSearch();
 });
 
-renderSearchResults('');
-
-// ===== 단서 수첩 =====
-function renderNotebook() {
+// ===== 단서 수첩 (전체 기록 기반 자동 요약) =====
+async function openNotebook() {
   const list = document.getElementById('notebook-list');
   list.innerHTML = '';
-
-  if (foundClueIds.size === 0) {
+  const dump = transcriptDump();
+  if (!dump) {
     const empty = document.createElement('div');
     empty.className = 'clue-empty';
-    empty.textContent = '아직 발견한 단서가 없습니다. 검색을 통해 조사를 시작하세요.';
+    empty.textContent = '아직 대화한 내용이 없습니다. moi.net에서 조사를 시작하세요.';
     list.appendChild(empty);
     return;
   }
-
-  const sorted = [...foundClueIds].sort((a, b) => a - b);
-  sorted.forEach((id) => {
-    const clue = CLUES.find((c) => c.id === id);
-    const card = document.createElement('div');
-    card.className = 'clue-card';
-    const title = document.createElement('div');
-    title.className = 'clue-title';
-    title.textContent = '#' + clue.id + ' ' + clue.title;
-    const body = document.createElement('div');
-    body.className = 'clue-body';
-    body.textContent = clue.body;
-    card.appendChild(title);
-    card.appendChild(body);
-    list.appendChild(card);
-  });
+  const loading = document.createElement('div');
+  loading.className = 'loading-line';
+  loading.textContent = '지금까지의 기록을 정리하는 중...';
+  list.appendChild(loading);
+  try {
+    const reply = await callAPI({
+      mode: 'summary',
+      day: state.day,
+      history: [],
+      playerInput: '[전체 기록]\n' + dump + '\n\n플레이어 명령: 정리해줘',
+    });
+    loading.remove();
+    const box = document.createElement('div');
+    box.className = 'clue-body';
+    box.style.whiteSpace = 'pre-line';
+    box.textContent = reply;
+    list.appendChild(box);
+  } catch (e) {
+    loading.remove();
+    list.innerHTML = '<div class="clue-empty">수첩을 불러오지 못했습니다.</div>';
+  }
 }
 
 // ===== 최종 추리 =====
-const ACCUSE_QUESTIONS = [
-  {
-    key: 'culprit',
-    title: '1. 범인은 누구인가?',
-    options: Object.values(SUSPECTS).map((s) => ({ value: s.id, label: s.name + ' (' + s.nick + ')' })),
-  },
-  {
-    key: 'location',
-    title: '2. 실종자는 어디에서 마지막으로 발견되었는가?',
-    options: [
-      { value: '온새미로', label: '다락방 카페 인근 골목 (온새미로)' },
-      { value: '표민준의 자택', label: '표민준의 자택' },
-      { value: '알 수 없음', label: '알 수 없음' },
-    ],
-  },
-  {
-    key: 'photoReason',
-    title: '3. 사진에서 실종자를 삭제한 이유는 무엇인가?',
-    options: [
-      { value: '도경이 그날 그 장소에 없었던 것처럼 보이게 하려고', label: '도경이 그날 그 장소에 없었던 것처럼 보이게 하려고' },
-      { value: '윤소하가 자기 얼굴이 마음에 안 들어서', label: '윤소하가 자기 얼굴이 마음에 안 들어서' },
-      { value: '단순 재미로 합성', label: '단순 재미로 합성' },
-    ],
-  },
-  {
-    key: 'method',
-    title: '4. 범인은 어떻게 자신의 알리바이를 만들었는가?',
-    options: [
-      { value: '평소처럼 존재감 없이 행동하며 의심을 피함', label: '평소처럼 존재감 없이 행동하며 의심을 피함' },
-      { value: '가짜 CCTV 영상을 조작함', label: '가짜 CCTV 영상을 조작함' },
-      { value: '완벽한 알리바이를 미리 준비해둠', label: '완벽한 알리바이를 미리 준비해둠' },
-    ],
-  },
+const FINAL_QUESTIONS = [
+  '1. 라임은 왜 사라졌는가?',
+  '2. 누가 라임의 개인정보를 유출했는가?',
+  '3. 라임 계정을 사용한 사람은 누구인가?',
+  '4. 6명의 용의자들은 왜 거짓말했는가?',
+  '5. 실종 당일 실제로 무슨 일이 있었는가?',
 ];
 
 function renderAccuse() {
   const body = document.getElementById('accuse-body');
   body.innerHTML = '';
 
-  const foundCount = document.createElement('div');
-  foundCount.style.marginBottom = '10px';
-  foundCount.style.color = '#555';
-  foundCount.textContent = '지금까지 발견한 단서: ' + foundClueIds.size + ' / ' + CLUES.length;
-  body.appendChild(foundCount);
+  const info = document.createElement('div');
+  info.style.marginBottom = '10px';
+  info.style.color = '#555';
+  info.textContent = '지금까지의 조사 내용을 바탕으로 답해주세요. (DAY ' + state.day + ')';
+  body.appendChild(info);
 
-  const answers = {};
-
-  ACCUSE_QUESTIONS.forEach((q) => {
+  const textareas = [];
+  FINAL_QUESTIONS.forEach((q) => {
     const group = document.createElement('div');
     group.className = 'qgroup';
     const title = document.createElement('div');
     title.className = 'qgroup-title';
-    title.textContent = q.title;
+    title.textContent = q;
+    const ta = document.createElement('textarea');
+    ta.className = 'qtext';
     group.appendChild(title);
-
-    q.options.forEach((opt) => {
-      const label = document.createElement('label');
-      label.className = 'qoption';
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = q.key;
-      radio.value = opt.value;
-      radio.addEventListener('change', () => {
-        answers[q.key] = opt.value;
-      });
-      label.appendChild(radio);
-      label.appendChild(document.createTextNode(opt.label));
-      group.appendChild(label);
-    });
-
+    group.appendChild(ta);
     body.appendChild(group);
+    textareas.push(ta);
   });
 
   const submitBtn = document.createElement('div');
@@ -299,34 +441,42 @@ function renderAccuse() {
   resultBox.id = 'accuse-result';
   body.appendChild(resultBox);
 
-  submitBtn.addEventListener('click', () => {
-    if (Object.keys(answers).length < ACCUSE_QUESTIONS.length) {
+  submitBtn.addEventListener('click', async () => {
+    const answers = textareas.map((t) => t.value.trim());
+    if (answers.some((a) => !a)) {
       resultBox.className = 'accuse-result';
-      resultBox.textContent = '4가지 질문에 모두 답해주세요.';
+      resultBox.textContent = '5가지 질문에 모두 답해주세요.';
       return;
     }
-    let correct = 0;
-    if (answers.culprit === TRUTH.culprit) correct++;
-    if (answers.location === TRUTH.location) correct++;
-    if (answers.photoReason === TRUTH.photoReason) correct++;
-    if (answers.method === TRUTH.method) correct++;
-
-    let verdict, detail;
-    if (correct === 4) {
-      verdict = '완벽한 추리';
-      detail = '모든 단서를 정확히 연결했습니다. 백준경(고요)이 10년 전 사촌 백가영의 실종을 감추기 위해 한도경을 온새미로 골목으로 불러냈고, 자신이 그곳에 있었다는 사실을 지우기 위해 단체사진에서 한도경을 삭제했다는 진실을 완전히 밝혀냈습니다.';
-    } else if (correct >= 2) {
-      verdict = '부분적으로 맞힌 추리';
-      detail = '사건의 큰 줄기는 맞혔지만, 일부 세부 사항을 놓쳤습니다. (' + correct + '/4 정답)';
-    } else {
-      verdict = '잘못된 추리';
-      detail = '핵심 단서들이 충분히 연결되지 않았습니다. 단서 수첩을 다시 확인하고 검색을 이어가 보세요. (' + correct + '/4 정답)';
+    resultBox.className = 'loading-line';
+    resultBox.textContent = '추리를 채점하는 중...';
+    const combined = FINAL_QUESTIONS.map((q, i) => q + '\n답: ' + answers[i]).join('\n\n');
+    try {
+      const reply = await callAPI({
+        mode: 'final',
+        day: state.day,
+        history: [],
+        playerInput: '[전체 기록]\n' + transcriptDump() + '\n\n[플레이어의 최종 추리]\n' + combined,
+      });
+      resultBox.className = 'accuse-result';
+      resultBox.textContent = reply;
+    } catch (e) {
+      resultBox.className = 'accuse-result';
+      resultBox.textContent = '채점 서버에 연결할 수 없습니다.';
     }
-
-    resultBox.className = 'accuse-result';
-    resultBox.innerHTML = '<strong>' + verdict + '</strong><br>' + detail;
   });
 }
+
+// ===== 초기화 =====
+document.querySelector('[data-open="chat"]').addEventListener('click', () => {
+  const isFirstTime = ensureNickname();
+  if (isFirstTime) {
+    renderRoster();
+    showIntro();
+  } else {
+    switchView(state.currentView);
+  }
+});
 
 // ===== 화면 크기에 맞춰 축소 =====
 const bezel = document.getElementById('bezel');

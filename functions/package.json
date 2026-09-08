@@ -1,0 +1,10 @@
+{
+  "name": "functions",
+  "description": "LAST LOG game AI backend",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^6.0.1"
+  },
+  "private": true
+}
