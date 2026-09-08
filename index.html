@@ -73,28 +73,12 @@
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
             <div style="display:flex;gap:6px;padding:10px;">
-              <div class="sunken" style="flex:1;padding:6px 8px;font-size:12px;color:#888;">pc-89 소식</div>
-              <div class="toolbtn" style="width:34px;">
+              <input id="search-input" class="chatinput" placeholder="검색어를 입력하세요..." autocomplete="off">
+              <div class="toolbtn" id="search-go" style="width:34px;cursor:pointer;">
                 <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.4" fill="none" stroke="#333" stroke-width="1.6"/><line x1="9.2" y1="9.2" x2="13" y2="13" stroke="#333" stroke-width="1.8" stroke-linecap="round"/></svg>
               </div>
             </div>
-            <div class="sunken" style="flex:1;margin:0 10px 10px;padding:10px;display:flex;flex-direction:column;gap:12px;overflow:hidden;">
-              <div>
-                <div class="result-title">PC-89 사용자 모임 - 최신 소식과 팁</div>
-                <div class="result-url">www.pc89-club.net</div>
-                <div class="result-snip">우리 모임에 오신 걸 환영합니다. 최신 소프트웨어 소식을 확인하세요.</div>
-              </div>
-              <div>
-                <div class="result-title">오늘의 날씨 정보</div>
-                <div class="result-url">weather.pc89.net</div>
-                <div class="result-snip">전국 날씨와 기온 정보를 안내합니다.</div>
-              </div>
-              <div>
-                <div class="result-title">레트로 게임 다운로드 자료실</div>
-                <div class="result-url">games.pc89.net</div>
-                <div class="result-snip">고전 PC 게임을 무료로 내려받을 수 있는 자료실입니다.</div>
-              </div>
-            </div>
+            <div class="sunken" id="search-results" style="flex:1;margin:0 10px 10px;padding:10px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;"></div>
           </div>
 
           <div id="view-folder" class="win hidden">
