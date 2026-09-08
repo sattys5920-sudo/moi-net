@@ -62,7 +62,7 @@ function pickRandom(arr) {
 // ===== 게임 상태 =====
 const DAY_HINTS = {
   1: '사람들의 말투 차이에 주목해보세요.',
-  2: '라임 계정이 실종 이후에도 움직였다는 점을 검색해보세요.',
+  2: '데미안 계정이 실종 이후에도 움직였다는 점을 검색해보세요.',
   3: '모두에게 같은 질문을 던져보고 반응을 비교해보세요.',
   4: '신뢰를 쌓은 뒤 "진짜 이유"를 물어보세요.',
   5: '지금까지 알아낸 것을 최종 추리에서 정리해보세요.',
@@ -205,13 +205,13 @@ function switchView(view) {
 function showIntro() {
   chatLog.innerHTML = '';
   addSysLine('새벽 2시 채팅방에 입장했습니다. 현재 접속자 13명.');
-  ROSTER.concat(['라임']).forEach((n) => addSysLine(n));
+  ROSTER.concat(['데미안']).forEach((n) => addSysLine(n));
   addSysLine('그리고 당신.');
-  addSysLine('23:58 모카: "라임?"');
-  addSysLine('00:01 잭: "아직 안 왔는데?"');
-  addSysLine('00:03 복숭아: "오늘 아예 안 오는 거 아님?"');
-  addSysLine('00:05 모카: "얘 원래 이 시간엔 꼭 오는데."');
-  addSysLine('[라임님의 마지막 접속: 18시간 전]');
+  addSysLine('23:58 고니: "데미안?"');
+  addSysLine('00:01 계룡맛: "아직 안 왔는데?"');
+  addSysLine('00:03 wkwkdfoq: "오늘 아예 안 오는 거 아님?"');
+  addSysLine('00:05 고니: "얘 원래 이 시간엔 꼭 오는데."');
+  addSysLine('[데미안님의 마지막 접속: 18시간 전]');
 }
 
 function ensureNickname() {
