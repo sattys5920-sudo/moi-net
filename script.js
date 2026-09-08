@@ -22,7 +22,7 @@ function openScreen(name) {
   label.textContent = TITLES[name];
   taskappArea.appendChild(label);
   if (name === 'chat') renderRoster();
-  if (name === 'folder') openNotebook();
+  if (name === 'folder') renderNotebook();
   if (name === 'accuse') renderAccuse();
 }
 
@@ -39,16 +39,33 @@ document.querySelectorAll('[data-close]').forEach((el) => {
   el.addEventListener('click', closeToDesktop);
 });
 
-// ===== LAST LOG : 게임 상태 =====
-const ROSTER = ['모카', '잭', '유령', '복숭아', '레몬', '검은고양이'];
-const API_URL = '/api/gameChat';
+// ===== 키워드 매칭 (부분 입력 허용, 다단어 키워드는 정확히 포함되어야 함) =====
+function norm(s) {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
-const DAY_INTRO = {
-  1: '실종 첫날. 라임이 사라졌다는 사실만 확인된 상태다.',
-  2: 'DAY 2. 라임 계정이 실종 이후에도 움직였다는 소문이 돈다.',
-  3: 'DAY 3. 사람마다 다른 정보를 들었다는 이야기가 나오기 시작한다.',
-  4: 'DAY 4. 숨겨왔던 사실들이 하나씩 드러날 조짐이 보인다.',
-  5: 'DAY 5. 라임의 마지막 흔적을 정리할 시간이다.',
+function matchesQuery(keywords, q) {
+  const nq = norm(q);
+  if (!nq) return false;
+  return keywords.some((k) => {
+    const nk = norm(k);
+    if (nq.includes(nk)) return true;
+    if (!nk.includes(' ') && nk.includes(nq)) return true;
+    return false;
+  });
+}
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ===== 게임 상태 =====
+const DAY_HINTS = {
+  1: '사람들의 말투 차이에 주목해보세요.',
+  2: '라임 계정이 실종 이후에도 움직였다는 점을 검색해보세요.',
+  3: '모두에게 같은 질문을 던져보고 반응을 비교해보세요.',
+  4: '신뢰를 쌓은 뒤 "진짜 이유"를 물어보세요.',
+  5: '지금까지 알아낸 것을 최종 추리에서 정리해보세요.',
 };
 
 function loadState() {
@@ -63,27 +80,34 @@ function saveState() {
   try {
     localStorage.setItem(
       'lastlog-state',
-      JSON.stringify({ day: state.day, nickname: state.nickname, threads: state.threads })
+      JSON.stringify({
+        day: state.day,
+        nickname: state.nickname,
+        currentView: state.currentView,
+        threads: state.threads,
+        unlocked: state.unlocked,
+      })
     );
   } catch (e) {}
 }
 
+function freshThreads() {
+  const t = { group: { history: [] } };
+  ROSTER.forEach((n) => {
+    t[n] = { history: [], trust: 0 };
+  });
+  return t;
+}
+
 const saved = loadState();
-const state = saved || {
-  day: 1,
-  nickname: null,
-  currentView: 'group',
-  threads: {
-    group: { history: [], trust: 0 },
-    모카: { history: [], trust: 0 },
-    잭: { history: [], trust: 0 },
-    유령: { history: [], trust: 0 },
-    복숭아: { history: [], trust: 0 },
-    레몬: { history: [], trust: 0 },
-    검은고양이: { history: [], trust: 0 },
-  },
-};
-state.currentView = 'group';
+const state =
+  saved || {
+    day: 1,
+    nickname: null,
+    currentView: 'group',
+    threads: freshThreads(),
+    unlocked: [],
+  };
 
 const chatLog = document.getElementById('chat-log');
 const chatInput = document.getElementById('chat-input');
@@ -141,14 +165,10 @@ function addSysLine(text) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function addLoadingLine() {
-  const line = document.createElement('div');
-  line.className = 'loading-line';
-  line.id = 'loading-line';
-  line.textContent = '...(응답 기다리는 중)';
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
-  return line;
+function renderHistoryEntry(e) {
+  if (e.type === 'sys') addSysLine(e.text);
+  else if (e.type === 'me') addMessage('me', e.text);
+  else addMessage('other', e.text, e.speaker);
 }
 
 function renderRoster() {
@@ -178,53 +198,8 @@ function switchView(view) {
   } else {
     addSysLine('[' + view + ' 접속 중...]');
   }
-  const th = state.threads[view];
-  th.history.forEach((m) => {
-    if (m.role === 'user') addMessage('me', m.content);
-    else renderAssistantMessage(view, m.content);
-  });
-}
-
-function renderAssistantMessage(view, text) {
-  if (view === 'group') {
-    text.split('\n').forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      const m = trimmed.match(/^([^:：]{1,10})[:：]\s*(.+)$/);
-      if (m) addMessage('other', m[2], m[1]);
-      else addSysLine(trimmed);
-    });
-  } else {
-    addMessage('other', text, view);
-  }
-}
-
-async function callAPI(payload) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error('API error ' + res.status);
-  const data = await res.json();
-  return data.reply;
-}
-
-function transcriptDump() {
-  const parts = [];
-  const g = state.threads.group.history;
-  if (g.length) {
-    parts.push('[그룹채팅방 기록]');
-    g.forEach((m) => parts.push((m.role === 'user' ? state.nickname + ': ' : '') + m.content));
-  }
-  ROSTER.forEach((name) => {
-    const h = state.threads[name].history;
-    if (h.length) {
-      parts.push('[' + name + '와의 개인채팅 기록]');
-      h.forEach((m) => parts.push((m.role === 'user' ? state.nickname + ': ' : name + ': ') + m.content));
-    }
-  });
-  return parts.join('\n');
+  state.threads[view].history.forEach(renderHistoryEntry);
+  saveState();
 }
 
 function showIntro() {
@@ -250,20 +225,46 @@ function ensureNickname() {
   return true;
 }
 
-async function handleSend() {
+function unlockClue(id, title, body, day) {
+  if (state.unlocked.some((c) => c.id === id)) return;
+  state.unlocked.push({ id, title, body, day });
+}
+
+function advanceDay() {
+  if (state.day < 5) state.day++;
+  const intro = DAY_INTRO[state.day];
+  const entries = [{ type: 'sys', text: '=== DAY ' + state.day + ' ===' }, { type: 'sys', text: intro.sys }];
+  (intro.lines || []).forEach((l) => entries.push({ type: 'npc', text: l.text, speaker: l.speaker }));
+  state.threads.group.history.push(...entries);
+  if (state.currentView === 'group') entries.forEach(renderHistoryEntry);
+  renderRoster();
+  saveState();
+}
+
+function findNpcDialogue(npc, text) {
+  const thread = state.threads[npc];
+  const list = NPC_DIALOGUE[npc] || [];
+  for (const entry of list) {
+    if (entry.day > state.day) continue;
+    if ((entry.trustMin || 0) > (thread.trust || 0)) continue;
+    if (matchesQuery(entry.keywords, text)) return entry;
+  }
+  return null;
+}
+
+function runSearchQuery(q) {
+  return SEARCH_CLUES.filter((c) => c.day <= state.day && matchesQuery(c.keywords, q));
+}
+
+function handleSend() {
   const text = chatInput.value.trim();
   if (!text) return;
   chatInput.value = '';
 
   if (text === '오늘은 여기까지') {
-    if (state.day < 5) state.day++;
-    switchView(state.currentView);
-    addSysLine('=== DAY ' + state.day + ' ===');
-    addSysLine(DAY_INTRO[state.day] || '');
-    saveState();
+    advanceDay();
     return;
   }
-
   if (ROSTER.includes(text)) {
     switchView(text);
     return;
@@ -275,51 +276,65 @@ async function handleSend() {
 
   addMessage('me', text);
 
-  let mode = state.currentView === 'group' ? 'group' : 'dm';
-  let npcId = state.currentView === 'group' ? undefined : state.currentView;
-  let apiInput = text;
-  let useThreadHistory = true;
+  if (state.currentView === 'group') {
+    state.threads.group.history.push({ type: 'me', text });
+    const reaction = pickRandom(GROUP_DEFAULT_LINES);
+    state.threads.group.history.push({ type: 'npc', text: reaction.text, speaker: reaction.speaker });
+    addMessage('other', reaction.text, reaction.speaker);
+    saveState();
+    return;
+  }
+
+  const npc = state.currentView;
+  const thread = state.threads[npc];
+  thread.history.push({ type: 'me', text });
 
   if (/^검색\s*/.test(text)) {
-    mode = 'search';
-    apiInput = text.replace(/^검색\s*/, '');
-    useThreadHistory = false;
-  } else if (text === '정리해줘') {
-    mode = 'summary';
-    apiInput = '[전체 기록]\n' + transcriptDump() + '\n\n플레이어 명령: 정리해줘';
-    useThreadHistory = false;
-  } else if (text === '힌트') {
-    mode = 'hint';
-    useThreadHistory = false;
-  }
-
-  const loadingEl = addLoadingLine();
-  try {
-    const thread = useThreadHistory ? state.threads[state.currentView] : null;
-    const reply = await callAPI({
-      mode,
-      day: state.day,
-      npcId,
-      trust: thread ? thread.trust : undefined,
-      history: thread ? thread.history : [],
-      playerInput: apiInput,
-    });
-    loadingEl.remove();
-
-    if (useThreadHistory) {
-      thread.history.push({ role: 'user', content: text });
-      thread.history.push({ role: 'assistant', content: reply });
-      thread.trust = Math.min(10, thread.trust + 1);
-      renderAssistantMessage(state.currentView, reply);
+    const q = text.replace(/^검색\s*/, '');
+    const results = runSearchQuery(q);
+    let reply;
+    if (results.length) {
+      results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day));
+      reply = results.map((r) => r.title + ' — ' + r.body).join('\n');
     } else {
-      addMessage('other', reply, mode === 'search' ? '검색결과' : mode === 'summary' ? '정리' : '힌트');
+      reply = SEARCH_DEFAULT;
     }
+    thread.history.push({ type: 'npc', text: reply, speaker: '검색결과' });
+    addMessage('other', reply, '검색결과');
     saveState();
-  } catch (e) {
-    loadingEl.remove();
-    addSysLine('(오류: 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.)');
-    console.error(e);
+    return;
   }
+
+  if (text === '힌트') {
+    const reply = DAY_HINTS[state.day] || DAY_HINTS[1];
+    thread.history.push({ type: 'npc', text: reply, speaker: '힌트' });
+    addMessage('other', reply, '힌트');
+    saveState();
+    return;
+  }
+
+  if (text === '정리해줘') {
+    const reply = state.unlocked.length
+      ? state.unlocked.map((c) => '· ' + c.title + ': ' + c.body).join('\n')
+      : '아직 알아낸 단서가 없습니다.';
+    thread.history.push({ type: 'npc', text: reply, speaker: '정리' });
+    addMessage('other', reply, '정리');
+    saveState();
+    return;
+  }
+
+  const found = findNpcDialogue(npc, text);
+  let replyText;
+  if (found) {
+    replyText = found.body;
+    unlockClue(found.id, found.title, found.body, found.day);
+  } else {
+    replyText = pickRandom(NPC_DEFAULT_LINES);
+  }
+  thread.history.push({ type: 'npc', text: replyText });
+  thread.trust = Math.min(10, (thread.trust || 0) + 1);
+  addMessage('other', replyText, npc);
+  saveState();
 }
 
 chatSend.addEventListener('click', handleSend);
@@ -327,84 +342,78 @@ chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleSend();
 });
 
-// ===== 검색 앱 (moi.net과 별개 진입점, 같은 백엔드 사용) =====
+// ===== 검색 앱 =====
 const searchInput = document.getElementById('search-input');
 const searchGo = document.getElementById('search-go');
 const searchResults = document.getElementById('search-results');
 
-async function runSearch() {
+function renderSearchResults(results) {
+  searchResults.innerHTML = '';
+  if (!results.length) {
+    const empty = document.createElement('div');
+    empty.className = 'clue-empty';
+    empty.textContent = SEARCH_DEFAULT;
+    searchResults.appendChild(empty);
+    return;
+  }
+  results.forEach((r) => {
+    const card = document.createElement('div');
+    card.className = 'clue-card';
+    const title = document.createElement('div');
+    title.className = 'clue-title';
+    title.textContent = r.title;
+    const body = document.createElement('div');
+    body.className = 'clue-body';
+    body.textContent = r.body;
+    card.appendChild(title);
+    card.appendChild(body);
+    searchResults.appendChild(card);
+  });
+}
+
+function runSearch() {
   const q = searchInput.value.trim();
   if (!q) return;
-  searchResults.innerHTML = '';
-  const loading = document.createElement('div');
-  loading.className = 'loading-line';
-  loading.textContent = '검색 중...';
-  searchResults.appendChild(loading);
-  try {
-    const reply = await callAPI({ mode: 'search', day: state.day, history: [], playerInput: q });
-    loading.remove();
-    const box = document.createElement('div');
-    box.className = 'clue-body';
-    box.style.whiteSpace = 'pre-line';
-    box.textContent = reply;
-    searchResults.appendChild(box);
-  } catch (e) {
-    loading.remove();
-    const err = document.createElement('div');
-    err.className = 'clue-empty';
-    err.textContent = '검색 서버에 연결할 수 없습니다.';
-    searchResults.appendChild(err);
-  }
+  const results = runSearchQuery(q);
+  results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day));
+  saveState();
+  renderSearchResults(results);
 }
 searchGo.addEventListener('click', runSearch);
 searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') runSearch();
 });
 
-// ===== 단서 수첩 (전체 기록 기반 자동 요약) =====
-async function openNotebook() {
+// ===== 단서 수첩 =====
+function renderNotebook() {
   const list = document.getElementById('notebook-list');
   list.innerHTML = '';
-  const dump = transcriptDump();
-  if (!dump) {
+  if (!state.unlocked.length) {
     const empty = document.createElement('div');
     empty.className = 'clue-empty';
-    empty.textContent = '아직 대화한 내용이 없습니다. moi.net에서 조사를 시작하세요.';
+    empty.textContent = '아직 알아낸 단서가 없습니다. moi.net과 검색에서 조사를 시작하세요.';
     list.appendChild(empty);
     return;
   }
-  const loading = document.createElement('div');
-  loading.className = 'loading-line';
-  loading.textContent = '지금까지의 기록을 정리하는 중...';
-  list.appendChild(loading);
-  try {
-    const reply = await callAPI({
-      mode: 'summary',
-      day: state.day,
-      history: [],
-      playerInput: '[전체 기록]\n' + dump + '\n\n플레이어 명령: 정리해줘',
+  state.unlocked
+    .slice()
+    .sort((a, b) => a.day - b.day)
+    .forEach((c) => {
+      const card = document.createElement('div');
+      card.className = 'clue-card';
+      const title = document.createElement('div');
+      title.className = 'clue-title';
+      title.textContent = 'DAY ' + c.day + ' · ' + c.title;
+      const body = document.createElement('div');
+      body.className = 'clue-body';
+      body.textContent = c.body;
+      card.appendChild(title);
+      card.appendChild(body);
+      list.appendChild(card);
     });
-    loading.remove();
-    const box = document.createElement('div');
-    box.className = 'clue-body';
-    box.style.whiteSpace = 'pre-line';
-    box.textContent = reply;
-    list.appendChild(box);
-  } catch (e) {
-    loading.remove();
-    list.innerHTML = '<div class="clue-empty">수첩을 불러오지 못했습니다.</div>';
-  }
 }
 
 // ===== 최종 추리 =====
-const FINAL_QUESTIONS = [
-  '1. 라임은 왜 사라졌는가?',
-  '2. 누가 라임의 개인정보를 유출했는가?',
-  '3. 라임 계정을 사용한 사람은 누구인가?',
-  '4. 6명의 용의자들은 왜 거짓말했는가?',
-  '5. 실종 당일 실제로 무슨 일이 있었는가?',
-];
-
 function renderAccuse() {
   const body = document.getElementById('accuse-body');
   body.innerHTML = '';
@@ -415,19 +424,31 @@ function renderAccuse() {
   info.textContent = '지금까지의 조사 내용을 바탕으로 답해주세요. (DAY ' + state.day + ')';
   body.appendChild(info);
 
-  const textareas = [];
-  FINAL_QUESTIONS.forEach((q) => {
+  const selections = new Array(FINAL_QUESTIONS.length).fill(-1);
+
+  FINAL_QUESTIONS.forEach((q, qi) => {
     const group = document.createElement('div');
     group.className = 'qgroup';
     const title = document.createElement('div');
     title.className = 'qgroup-title';
-    title.textContent = q;
-    const ta = document.createElement('textarea');
-    ta.className = 'qtext';
+    title.textContent = q.q;
     group.appendChild(title);
-    group.appendChild(ta);
+
+    q.options.forEach((opt, oi) => {
+      const label = document.createElement('label');
+      label.className = 'qoption';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'q' + qi;
+      radio.addEventListener('change', () => {
+        selections[qi] = oi;
+      });
+      label.appendChild(radio);
+      label.appendChild(document.createTextNode(opt));
+      group.appendChild(label);
+    });
+
     body.appendChild(group);
-    textareas.push(ta);
   });
 
   const submitBtn = document.createElement('div');
@@ -441,29 +462,20 @@ function renderAccuse() {
   resultBox.id = 'accuse-result';
   body.appendChild(resultBox);
 
-  submitBtn.addEventListener('click', async () => {
-    const answers = textareas.map((t) => t.value.trim());
-    if (answers.some((a) => !a)) {
+  submitBtn.addEventListener('click', () => {
+    if (selections.some((s) => s === -1)) {
       resultBox.className = 'accuse-result';
       resultBox.textContent = '5가지 질문에 모두 답해주세요.';
       return;
     }
-    resultBox.className = 'loading-line';
-    resultBox.textContent = '추리를 채점하는 중...';
-    const combined = FINAL_QUESTIONS.map((q, i) => q + '\n답: ' + answers[i]).join('\n\n');
-    try {
-      const reply = await callAPI({
-        mode: 'final',
-        day: state.day,
-        history: [],
-        playerInput: '[전체 기록]\n' + transcriptDump() + '\n\n[플레이어의 최종 추리]\n' + combined,
-      });
-      resultBox.className = 'accuse-result';
-      resultBox.textContent = reply;
-    } catch (e) {
-      resultBox.className = 'accuse-result';
-      resultBox.textContent = '채점 서버에 연결할 수 없습니다.';
-    }
+    const score = selections.filter((s, i) => s === FINAL_QUESTIONS[i].correct).length;
+    let verdict;
+    if (score === 5) verdict = '완벽한 진실에 도달했습니다.';
+    else if (score >= 3) verdict = '거의 다 왔습니다. 큰 흐름은 맞지만 세부 사항을 놓쳤습니다.';
+    else verdict = '아직 사건의 실체에 닿지 못했습니다.';
+
+    resultBox.className = 'accuse-result';
+    resultBox.textContent = verdict + ' (' + score + '/5)\n\n[진실]\n' + TRUE_STORY_TEXT;
   });
 }
 
