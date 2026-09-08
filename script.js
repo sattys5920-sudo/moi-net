@@ -39,20 +39,23 @@ document.querySelectorAll('[data-close]').forEach((el) => {
   el.addEventListener('click', closeToDesktop);
 });
 
-// ===== 키워드 매칭 (부분 입력 허용, 다단어 키워드는 정확히 포함되어야 함) =====
+// ===== 키워드 매칭 =====
+// 부분 입력 허용(한 단어 키워드), 여러 단어 키워드는 통째로 포함되어야 함.
+// 반환값: 매치된 키워드 중 가장 긴 것의 길이 (0이면 매치 없음). 길수록 더 구체적인 질문으로 본다.
 function norm(s) {
   return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function matchesQuery(keywords, q) {
+function keywordScore(keywords, q) {
   const nq = norm(q);
-  if (!nq) return false;
-  return keywords.some((k) => {
+  if (!nq) return 0;
+  let best = 0;
+  keywords.forEach((k) => {
     const nk = norm(k);
-    if (nq.includes(nk)) return true;
-    if (!nk.includes(' ') && nk.includes(nq)) return true;
-    return false;
+    const hit = nq.includes(nk) || (!nk.includes(' ') && nk.includes(nq));
+    if (hit && nk.length > best) best = nk.length;
   });
+  return best;
 }
 
 function pickRandom(arr) {
@@ -61,12 +64,17 @@ function pickRandom(arr) {
 
 // ===== 게임 상태 =====
 const DAY_HINTS = {
-  1: '사람들의 말투 차이에 주목해보세요.',
-  2: '데미안 계정이 실종 이후에도 움직였다는 점을 검색해보세요.',
-  3: '모두에게 같은 질문을 던져보고 반응을 비교해보세요.',
-  4: '신뢰를 쌓은 뒤 "진짜 이유"를 물어보세요.',
-  5: '지금까지 알아낸 것을 최종 추리에서 정리해보세요.',
+  1: '6 명 모두에게 먼저 "데미안"에 대해 물어보고, 검색 앱에서 "데미안"을 검색해 보세요.',
+  2: '검색 앱에서 "재접속", "23:18", "23:07", "00:03"을 찾아보고, 찾은 기록을 NPC에게 증거로 제시해 보세요.',
+  3: '"미끼 정보"를 검색한 뒤, 그 단서를 6 명 각각에게 제시해 보세요. 사람마다 들은 이야기가 다릅니다.',
+  4: '"23:52"와 "01:12" 기록을 찾아 호호19와 포청천에게 제시하세요. 한 사람의 고백이 다른 사람의 입을 엽니다.',
+  5: '포청천에게 01:12 기록을 다시 제시하고, "정보 유출 구조"를 검색해 보세요. 조건이 갖춰지면 그룹채팅에 무언가 올라옵니다.',
 };
+
+const HELP_LINES = [
+  '명령어: 닉네임 입력 → 1:1 채팅 | 그룹채팅 | 검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 오늘은 여기까지',
+  '1:1 채팅에서는 아래 "증거 제시" 메뉴로 수첩의 단서를 상대에게 보여 줄 수 있습니다.',
+];
 
 function loadState() {
   try {
@@ -86,6 +94,8 @@ function saveState() {
         currentView: state.currentView,
         threads: state.threads,
         unlocked: state.unlocked,
+        presented: state.presented,
+        events: state.events,
       })
     );
   } catch (e) {}
@@ -107,13 +117,37 @@ const state =
     currentView: 'group',
     threads: freshThreads(),
     unlocked: [],
+    presented: [],
+    events: [],
   };
+// 이전 버전 저장 데이터 호환
+state.presented = state.presented || [];
+state.events = state.events || [];
+ROSTER.forEach((n) => {
+  if (!state.threads[n]) state.threads[n] = { history: [] };
+});
+
+function has(id) {
+  return state.unlocked.some((c) => c.id === id);
+}
+
+function countPrefix(prefix) {
+  return state.unlocked.filter((c) => c.id.startsWith(prefix)).length;
+}
+
+// 신뢰도 = 이 NPC에게서 이미 알아낸 서로 다른 사실의 개수 (대화 + 증거 제시). 스팸으로는 늘릴 수 없음.
+function trustFor(npc) {
+  return countPrefix(npc + '_');
+}
 
 const chatLog = document.getElementById('chat-log');
 const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
 const rosterEl = document.getElementById('roster');
 const dayTag = document.getElementById('day-tag');
+const evidenceRow = document.getElementById('evidence-row');
+const evidenceSelect = document.getElementById('evidence-select');
+const evidenceGo = document.getElementById('evidence-go');
 
 const OTHER_AVATAR_SVG =
   '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="6" r="3" fill="#f2c48a"/><path d="M2 15c1-4 4-5 6-5s5 1 6 5" fill="#3b6fa8"/></svg>';
@@ -171,6 +205,17 @@ function renderHistoryEntry(e) {
   else addMessage('other', e.text, e.speaker);
 }
 
+// 여러 줄을 채팅처럼 시차를 두고 출력 (기록에는 즉시 저장)
+function pushLines(view, entries) {
+  state.threads[view].history.push(...entries);
+  if (state.currentView !== view) return;
+  entries.forEach((e, i) => {
+    setTimeout(() => {
+      if (state.currentView === view) renderHistoryEntry(e);
+    }, i * 350);
+  });
+}
+
 function renderRoster() {
   rosterEl.innerHTML = '';
   const groupBtn = document.createElement('div');
@@ -189,17 +234,43 @@ function renderRoster() {
   dayTag.textContent = 'DAY ' + state.day;
 }
 
+function renderEvidenceRow() {
+  if (state.currentView === 'group') {
+    evidenceRow.classList.add('hidden');
+    return;
+  }
+  evidenceRow.classList.remove('hidden');
+  evidenceSelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = state.unlocked.length ? '수첩의 단서를 골라 제시...' : '(아직 모은 단서가 없음)';
+  evidenceSelect.appendChild(placeholder);
+  state.unlocked.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.title;
+    evidenceSelect.appendChild(opt);
+  });
+}
+
 function switchView(view) {
   state.currentView = view;
   renderRoster();
+  renderEvidenceRow();
   chatLog.innerHTML = '';
   if (view === 'group') {
     addSysLine('[새벽 2 시 그룹채팅방]');
   } else {
-    addSysLine('[' + view + ' 접속 중...]');
+    addSysLine('[' + view + ' 접속 중... 신뢰도 ' + trustFor(view) + ']');
   }
   state.threads[view].history.forEach(renderHistoryEntry);
+  if (view === 'group') checkGroupEvents();
   saveState();
+}
+
+function goalLines(day) {
+  const goals = DAY_GOALS[day] || [];
+  return goals.map((g) => (g.check(state) ? '✔ ' : '○ ') + g.label);
 }
 
 function showIntro() {
@@ -212,6 +283,11 @@ function showIntro() {
   addSysLine('00:03 wkwkdfoq: "오늘 아예 안 오는 거 아님?"');
   addSysLine('00:05 고니: "얘 원래 이 시간엔 꼭 오는데."');
   addSysLine('[데미안님의 마지막 접속: 18 시간 전]');
+  addSysLine('=== DAY 1 ===');
+  addSysLine(DAY_INTRO[1].sys);
+  HELP_LINES.forEach(addSysLine);
+  addSysLine('[오늘 목표]');
+  goalLines(1).forEach(addSysLine);
 }
 
 function ensureNickname() {
@@ -226,47 +302,154 @@ function ensureNickname() {
 }
 
 function unlockClue(id, title, body, day) {
-  if (state.unlocked.some((c) => c.id === id)) return false;
+  if (has(id)) return false;
   state.unlocked.push({ id, title, body, day });
+  renderEvidenceRow();
   return true;
 }
 
 function advanceDay() {
-  if (state.day < 5) state.day++;
+  if (state.day >= 5) {
+    addSysLine('마지막 날입니다. 충분히 조사했다면 바탕화면의 "최종 추리"로 가세요.');
+    return;
+  }
+  const unmet = (DAY_GOALS[state.day] || []).filter((g) => !g.check(state));
+  if (unmet.length) {
+    addSysLine('아직 오늘 할 일이 남았습니다:');
+    unmet.forEach((g) => addSysLine('○ ' + g.label));
+    addSysLine('("목표"라고 입력하면 언제든 다시 볼 수 있습니다)');
+    return;
+  }
+  state.day++;
   const intro = DAY_INTRO[state.day];
   const entries = [{ type: 'sys', text: '=== DAY ' + state.day + ' ===' }, { type: 'sys', text: intro.sys }];
   (intro.lines || []).forEach((l) => entries.push({ type: 'npc', text: l.text, speaker: l.speaker }));
+  entries.push({ type: 'sys', text: '[오늘 목표]' });
+  goalLines(state.day).forEach((t) => entries.push({ type: 'sys', text: t }));
   state.threads.group.history.push(...entries);
-  if (state.currentView === 'group') entries.forEach(renderHistoryEntry);
-  renderRoster();
+  switchView('group');
   saveState();
 }
 
-// 신뢰도 = 이 NPC에게서 이미 알아낸 서로 다른 사실의 개수 (스팸으로 늘릴 수 없음)
-function trustFor(npc) {
-  const prefix = npc + '_d';
-  return state.unlocked.filter((c) => c.id.startsWith(prefix)).length;
+// ===== 그룹 이벤트 =====
+function checkGroupEvents() {
+  GROUP_EVENTS.forEach((ev) => {
+    if (state.events.includes(ev.id)) return;
+    if (ev.day > state.day) return;
+    if (ev.requires && !ev.requires.every(has)) return;
+    state.events.push(ev.id);
+    const entries = ev.lines.map(([who, text]) => (who === 'sys' ? { type: 'sys', text } : { type: 'npc', text, speaker: who }));
+    if (ev.unlock) {
+      unlockClue(ev.unlock.id, ev.unlock.title, ev.unlock.body, state.day);
+      entries.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + ev.unlock.title });
+    }
+    pushLines('group', entries);
+  });
+  saveState();
+}
+
+// ===== NPC 대사 찾기 =====
+function gateStatus(entry, npc) {
+  if (entry.day > state.day) return 'day';
+  if ((entry.trustMin || 0) > trustFor(npc)) return 'trust';
+  if (entry.requiresAny && !entry.requiresAny.some(has)) return 'requires';
+  if (entry.requires && !entry.requires.every(has)) return 'requires';
+  if (entry.requiresCount && countPrefix(npc + '_d' + (entry.day - 1) + '_') < entry.requiresCount) return 'requires';
+  return 'ok';
+}
+
+function better(a, b) {
+  // 더 구체적인 키워드 > 더 깊은 날짜 > 더 높은 신뢰 조건
+  if (a.score !== b.score) return a.score > b.score;
+  if (a.entry.day !== b.entry.day) return a.entry.day > b.entry.day;
+  return (a.entry.trustMin || 0) > (b.entry.trustMin || 0);
 }
 
 function findNpcDialogue(npc, text) {
-  const trust = trustFor(npc);
-  const list = NPC_DIALOGUE[npc] || [];
-  let best = null;
-  for (const entry of list) {
-    if (entry.day > state.day) continue;
-    if ((entry.trustMin || 0) > trust) continue;
-    if (!matchesQuery(entry.keywords, text)) continue;
-    if (!best || entry.day > best.day || (entry.day === best.day && (entry.trustMin || 0) > (best.trustMin || 0))) {
-      best = entry;
+  let bestOk = null;
+  let bestLocked = null;
+  (NPC_DIALOGUE[npc] || []).forEach((entry) => {
+    const score = keywordScore(entry.keywords, text);
+    if (!score) return;
+    const status = gateStatus(entry, npc);
+    const cand = { entry, score, status };
+    if (status === 'ok') {
+      if (!bestOk || better(cand, bestOk)) bestOk = cand;
+    } else if (!bestLocked || better(cand, bestLocked)) {
+      bestLocked = cand;
     }
+  });
+  if (!bestOk) return bestLocked;
+  // 같은 키워드에 더 깊은(잠긴) 대사가 있으면 알려 준다 — 아직 열리지 않은 날짜의 대사는 제외
+  if (bestLocked && bestLocked.status !== 'day' && bestLocked.entry.day > bestOk.entry.day && bestLocked.score >= bestOk.score) {
+    bestOk.deeper = bestLocked;
   }
-  return best;
+  return bestOk;
+}
+
+const DEEPER_HINTS = {
+  trust: '(...말끝을 흐린다. 더 친해지면 말해 줄지도 모른다.)',
+  requires: '(...뭔가 더 알고 있는 눈치다. 근거를 들이대면 달라질지도.)',
+};
+
+function findGroupReaction(text) {
+  let best = null;
+  GROUP_REACTIONS.forEach((r) => {
+    if (r.day > state.day) return;
+    if (r.requires && !r.requires.every(has)) return;
+    const score = keywordScore(r.keywords, text);
+    if (!score) return;
+    if (!best || score > best.score || (score === best.score && r.day > best.r.day)) best = { r, score };
+  });
+  return best ? best.r : null;
 }
 
 function runSearchQuery(q) {
-  return SEARCH_CLUES.filter((c) => c.day <= state.day && matchesQuery(c.keywords, q));
+  return SEARCH_CLUES.filter((c) => c.day <= state.day && (!c.requires || c.requires.every(has)) && keywordScore(c.keywords, q) > 0);
 }
 
+// ===== 증거 제시 =====
+function presentEvidence(npc, clueId) {
+  const clue = state.unlocked.find((c) => c.id === clueId);
+  if (!clue) return;
+  const thread = state.threads[npc];
+  const meLine = { type: 'me', text: '[증거 제시] ' + clue.title };
+  thread.history.push(meLine);
+  if (state.currentView === npc) renderHistoryEntry(meLine);
+
+  const key = npc + '|' + clueId;
+  if (!state.presented.includes(key)) state.presented.push(key);
+
+  let best = null;
+  (EVIDENCE_REACTIONS[npc] || []).forEach((r) => {
+    if (r.clue !== clueId || r.day > state.day) return;
+    if (!best || r.day > best.day) best = r;
+  });
+
+  const entries = [];
+  if (best) {
+    entries.push({ type: 'npc', text: best.body, speaker: npc });
+    if (best.unlock && unlockClue(best.unlock.id, best.unlock.title, best.unlock.body, state.day)) {
+      entries.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + best.unlock.title + ' (신뢰도 ' + trustFor(npc) + ')' });
+    }
+  } else {
+    entries.push({ type: 'npc', text: pickRandom(EVIDENCE_DEFAULT), speaker: npc });
+  }
+  pushLines(npc, entries);
+  saveState();
+}
+
+function presentEvidenceByText(npc, text) {
+  const nq = norm(text);
+  const clue = state.unlocked.find((c) => norm(c.title).includes(nq) || norm(c.body).includes(nq));
+  if (!clue) {
+    addSysLine('수첩에서 "' + text + '"에 해당하는 단서를 찾지 못했습니다. 아래 메뉴에서 골라도 됩니다.');
+    return;
+  }
+  presentEvidence(npc, clue.id);
+}
+
+// ===== 입력 처리 =====
 function handleSend() {
   const text = chatInput.value.trim();
   if (!text) return;
@@ -284,66 +467,122 @@ function handleSend() {
     switchView('group');
     return;
   }
-
-  addMessage('me', text);
-
-  if (state.currentView === 'group') {
-    state.threads.group.history.push({ type: 'me', text });
-    const reaction = pickRandom(GROUP_DEFAULT_LINES);
-    state.threads.group.history.push({ type: 'npc', text: reaction.text, speaker: reaction.speaker });
-    addMessage('other', reaction.text, reaction.speaker);
-    saveState();
+  if (text === '목표') {
+    addSysLine('[DAY ' + state.day + ' 목표]');
+    goalLines(state.day).forEach(addSysLine);
+    return;
+  }
+  if (text === '도움말' || text === '명령어' || text === '?') {
+    HELP_LINES.forEach(addSysLine);
     return;
   }
 
-  const npc = state.currentView;
-  const thread = state.threads[npc];
-  thread.history.push({ type: 'me', text });
+  const view = state.currentView;
+  const thread = state.threads[view];
 
   if (/^검색\s*/.test(text)) {
+    thread.history.push({ type: 'me', text });
+    addMessage('me', text);
     const q = text.replace(/^검색\s*/, '');
     const results = runSearchQuery(q);
     let reply;
     if (results.length) {
-      results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day));
+      const fresh = [];
+      results.forEach((r) => {
+        if (unlockClue(r.id, r.title, r.body, r.day)) fresh.push(r.title);
+      });
       reply = results.map((r) => r.title + ' — ' + r.body).join('\n');
+      const rel = results.flatMap((r) => SEARCH_RELATED[r.id] || []);
+      if (rel.length) reply += '\n연관 검색어: ' + Array.from(new Set(rel)).join(', ');
+      thread.history.push({ type: 'npc', text: reply, speaker: '검색결과' });
+      addMessage('other', reply, '검색결과');
+      fresh.forEach((t) => {
+        const e = { type: 'sys', text: '📎 단서 수첩에 기록: ' + t };
+        thread.history.push(e);
+        renderHistoryEntry(e);
+      });
     } else {
       reply = SEARCH_DEFAULT;
+      thread.history.push({ type: 'npc', text: reply, speaker: '검색결과' });
+      addMessage('other', reply, '검색결과');
     }
-    thread.history.push({ type: 'npc', text: reply, speaker: '검색결과' });
-    addMessage('other', reply, '검색결과');
+    if (view === 'group') checkGroupEvents();
     saveState();
     return;
   }
 
   if (text === '힌트') {
     const reply = DAY_HINTS[state.day] || DAY_HINTS[1];
-    thread.history.push({ type: 'npc', text: reply, speaker: '힌트' });
+    thread.history.push({ type: 'me', text }, { type: 'npc', text: reply, speaker: '힌트' });
+    addMessage('me', text);
     addMessage('other', reply, '힌트');
     saveState();
     return;
   }
 
   if (text === '정리해줘') {
-    const reply = state.unlocked.length
-      ? state.unlocked.map((c) => '· ' + c.title + ': ' + c.body).join('\n')
-      : '아직 알아낸 단서가 없습니다.';
-    thread.history.push({ type: 'npc', text: reply, speaker: '정리' });
+    const open = OPEN_QUESTIONS.filter((q) => q.day <= state.day);
+    const parts = [];
+    if (open.length) {
+      parts.push('[미해결 의문]');
+      open.forEach((q) => parts.push((q.resolvedBy.some(has) ? '✔ ' : '○ ') + q.text));
+    }
+    parts.push('[모은 단서 ' + state.unlocked.length + ' 개]');
+    state.unlocked.slice(-8).forEach((c) => parts.push('· ' + c.title));
+    if (state.unlocked.length > 8) parts.push('(전체 목록은 단서 수첩에서)');
+    const reply = parts.join('\n');
+    thread.history.push({ type: 'me', text }, { type: 'npc', text: reply, speaker: '정리' });
+    addMessage('me', text);
     addMessage('other', reply, '정리');
     saveState();
     return;
   }
 
-  const found = findNpcDialogue(npc, text);
-  let replyText;
-  if (found) {
-    replyText = found.body;
-    unlockClue(found.id, found.title, found.body, found.day);
-  } else {
-    replyText = pickRandom(NPC_DEFAULT_LINES);
+  if (view !== 'group' && /^증거\s*/.test(text)) {
+    presentEvidenceByText(view, text.replace(/^증거\s*/, ''));
+    return;
   }
-  thread.history.push({ type: 'npc', text: replyText });
-  addMessage('other', replyText, npc);
+
+  thread.history.push({ type: 'me', text });
+  addMessage('me', text);
+
+  if (view === 'group') {
+    const r = findGroupReaction(text);
+    let entries;
+    if (r) {
+      entries = r.lines.map(([who, t]) => ({ type: 'npc', text: t, speaker: who }));
+    } else {
+      const d = pickRandom(GROUP_DEFAULT_LINES);
+      entries = [{ type: 'npc', text: d.text, speaker: d.speaker }];
+    }
+    pushLines('group', entries);
+    saveState();
+    return;
+  }
+
+  const npc = view;
+  const found = findNpcDialogue(npc, text);
+  const entries = [];
+  if (!found) {
+    entries.push({ type: 'npc', text: pickRandom(NPC_DEFAULT_LINES), speaker: npc });
+  } else if (found.status !== 'ok') {
+    entries.push({ type: 'npc', text: pickRandom(LOCKED_LINES[found.status]), speaker: npc });
+    if (found.status === 'requires' && found.entry.requiresHint) {
+      entries.push({ type: 'sys', text: '(힌트: ' + found.entry.requiresHint + ')' });
+    }
+  } else {
+    entries.push({ type: 'npc', text: found.entry.body, speaker: npc });
+    if (unlockClue(found.entry.id, found.entry.title, found.entry.body, found.entry.day)) {
+      entries.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + found.entry.title + ' (신뢰도 ' + trustFor(npc) + ')' });
+    }
+    if (found.deeper) {
+      entries.push({ type: 'sys', text: DEEPER_HINTS[found.deeper.status] });
+      if (found.deeper.status === 'requires' && found.deeper.entry.requiresHint) {
+        entries.push({ type: 'sys', text: '(힌트: ' + found.deeper.entry.requiresHint + ')' });
+      }
+    }
+  }
+  pushLines(npc, entries);
   saveState();
 }
 
@@ -351,13 +590,19 @@ chatSend.addEventListener('click', handleSend);
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleSend();
 });
+evidenceGo.addEventListener('click', () => {
+  const id = evidenceSelect.value;
+  if (!id || state.currentView === 'group') return;
+  presentEvidence(state.currentView, id);
+  evidenceSelect.value = '';
+});
 
 // ===== 검색 앱 =====
 const searchInput = document.getElementById('search-input');
 const searchGo = document.getElementById('search-go');
 const searchResults = document.getElementById('search-results');
 
-function renderSearchResults(results) {
+function renderSearchResults(results, freshIds) {
   searchResults.innerHTML = '';
   if (!results.length) {
     const empty = document.createElement('div');
@@ -371,12 +616,31 @@ function renderSearchResults(results) {
     card.className = 'clue-card';
     const title = document.createElement('div');
     title.className = 'clue-title';
-    title.textContent = r.title;
+    title.textContent = r.title + (freshIds.includes(r.id) ? '  [NEW]' : '');
     const body = document.createElement('div');
     body.className = 'clue-body';
     body.textContent = r.body;
     card.appendChild(title);
     card.appendChild(body);
+    const rel = SEARCH_RELATED[r.id];
+    if (rel && rel.length) {
+      const relEl = document.createElement('div');
+      relEl.className = 'clue-related';
+      relEl.textContent = '연관 검색어: ';
+      rel.forEach((k, i) => {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = k;
+        a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          searchInput.value = k;
+          runSearch();
+        });
+        relEl.appendChild(a);
+        if (i < rel.length - 1) relEl.appendChild(document.createTextNode(', '));
+      });
+      card.appendChild(relEl);
+    }
     searchResults.appendChild(card);
   });
 }
@@ -385,9 +649,12 @@ function runSearch() {
   const q = searchInput.value.trim();
   if (!q) return;
   const results = runSearchQuery(q);
-  results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day));
+  const fresh = [];
+  results.forEach((r) => {
+    if (unlockClue(r.id, r.title, r.body, r.day)) fresh.push(r.id);
+  });
   saveState();
-  renderSearchResults(results);
+  renderSearchResults(results, fresh);
 }
 searchGo.addEventListener('click', runSearch);
 searchInput.addEventListener('keydown', (e) => {
@@ -398,6 +665,39 @@ searchInput.addEventListener('keydown', (e) => {
 function renderNotebook() {
   const list = document.getElementById('notebook-list');
   list.innerHTML = '';
+
+  const open = OPEN_QUESTIONS.filter((q) => q.day <= state.day);
+  if (open.length) {
+    const head = document.createElement('div');
+    head.className = 'clue-title';
+    head.textContent = '미해결 의문';
+    list.appendChild(head);
+    open.forEach((q) => {
+      const row = document.createElement('div');
+      row.className = 'clue-body';
+      const done = q.resolvedBy.some(has);
+      row.textContent = (done ? '✔ ' : '○ ') + q.text;
+      if (done) row.style.color = '#0a7d2c';
+      list.appendChild(row);
+    });
+    const goalsHead = document.createElement('div');
+    goalsHead.className = 'clue-title';
+    goalsHead.style.marginTop = '8px';
+    goalsHead.textContent = 'DAY ' + state.day + ' 목표';
+    list.appendChild(goalsHead);
+    goalLines(state.day).forEach((t) => {
+      const row = document.createElement('div');
+      row.className = 'clue-body';
+      row.textContent = t;
+      list.appendChild(row);
+    });
+    const hr = document.createElement('hr');
+    hr.style.border = 'none';
+    hr.style.borderTop = '1px solid #808080';
+    hr.style.width = '100%';
+    list.appendChild(hr);
+  }
+
   if (!state.unlocked.length) {
     const empty = document.createElement('div');
     empty.className = 'clue-empty';
@@ -405,6 +705,10 @@ function renderNotebook() {
     list.appendChild(empty);
     return;
   }
+  const head = document.createElement('div');
+  head.className = 'clue-title';
+  head.textContent = '모은 단서 (' + state.unlocked.length + ')';
+  list.appendChild(head);
   state.unlocked
     .slice()
     .sort((a, b) => a.day - b.day)
@@ -431,7 +735,7 @@ function renderAccuse() {
   const info = document.createElement('div');
   info.style.marginBottom = '10px';
   info.style.color = '#555';
-  info.textContent = '지금까지의 조사 내용을 바탕으로 답해주세요. (DAY ' + state.day + ')';
+  info.textContent = '지금까지의 조사 내용을 바탕으로 답해주세요. (DAY ' + state.day + ' · 단서 ' + state.unlocked.length + ' 개)';
   body.appendChild(info);
 
   const selections = new Array(FINAL_QUESTIONS.length).fill(-1);
@@ -479,13 +783,23 @@ function renderAccuse() {
       return;
     }
     const score = selections.filter((s, i) => s === FINAL_QUESTIONS[i].correct).length;
+    const trueEnd = score === 5 && has('ev_demian_post');
     let verdict;
-    if (score === 5) verdict = '완벽한 진실에 도달했습니다.';
+    if (trueEnd) verdict = '★ TRUE END — 데미안이 남긴 마지막 로그까지 전부 읽어 냈습니다.';
+    else if (score === 5) verdict = '완벽한 추리입니다. 하지만 데미안의 예약 게시물은 아직 열지 못했습니다.';
     else if (score >= 3) verdict = '거의 다 왔습니다. 큰 흐름은 맞지만 세부 사항을 놓쳤습니다.';
     else verdict = '아직 사건의 실체에 닿지 못했습니다.';
 
+    const lines = [verdict + ' (' + score + '/5)', ''];
+    FINAL_QUESTIONS.forEach((q, i) => {
+      const ok = selections[i] === q.correct;
+      lines.push((ok ? '✔ ' : '✘ ') + q.q);
+      if (!ok) lines.push('   정답: ' + q.options[q.correct]);
+      lines.push('   근거: ' + q.why);
+    });
+    lines.push('', '[진실]', TRUE_STORY_TEXT);
     resultBox.className = 'accuse-result';
-    resultBox.textContent = verdict + ' (' + score + '/5)\n\n[진실]\n' + TRUE_STORY_TEXT;
+    resultBox.textContent = lines.join('\n');
   });
 }
 
@@ -493,8 +807,11 @@ function renderAccuse() {
 document.querySelector('[data-open="chat"]').addEventListener('click', () => {
   const isFirstTime = ensureNickname();
   if (isFirstTime) {
+    state.currentView = 'group';
     renderRoster();
+    renderEvidenceRow();
     showIntro();
+    saveState();
   } else {
     switchView(state.currentView);
   }

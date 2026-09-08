@@ -66,9 +66,13 @@
             </div>
             <div class="roster" id="roster"></div>
             <div class="sunken chatlog" id="chat-log"></div>
-            <div style="display:flex;gap:6px;padding:8px;">
-              <input id="chat-input" class="chatinput" placeholder="메시지를 입력하세요... (닉네임/검색/힌트/정리해줘/오늘은 여기까지)" autocomplete="off">
+            <div style="display:flex;gap:6px;padding:8px 8px 4px;">
+              <input id="chat-input" class="chatinput" placeholder="메시지 입력... (닉네임 / 검색 ○○ / 증거 ○○ / 목표 / 힌트 / 오늘은 여기까지)" autocomplete="off">
               <div class="toolbtn sendbtn" id="chat-send">보내기</div>
+            </div>
+            <div id="evidence-row" class="evidence-row hidden">
+              <select id="evidence-select" class="evidence-select"></select>
+              <div class="toolbtn sendbtn" id="evidence-go">증거 제시</div>
             </div>
           </div>
 
