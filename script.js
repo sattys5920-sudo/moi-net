@@ -65,7 +65,7 @@ function pickRandom(arr) {
 // ===== 게임 상태 =====
 const DAY_HINTS = {
   1: '6 명 모두에게 먼저 "데미안"에 대해 물어보고, 검색 앱에서 "데미안"을 검색해 보세요.',
-  2: '검색 앱에서 "재접속", "23:18", "23:07", "00:03"을 찾아보고, 찾은 기록을 NPC에게 증거로 제시해 보세요.',
+  2: '검색 앱에서 "재접속", "23:18", "23:07", "00:03"을 찾아보고, 찾은 기록을 NPC에게 증거로 제시해 보세요. 검색 결과가 전부 사실은 아닙니다 — 수상한 기록도 관련자에게 제시해 보세요.',
   3: '"미끼 정보"를 검색한 뒤, 그 단서를 6 명 각각에게 제시해 보세요. 사람마다 들은 이야기가 다릅니다.',
   4: '"23:52"와 "01:12" 기록을 찾아 호호19와 포청천에게 제시하세요. 한 사람의 고백이 다른 사람의 입을 엽니다.',
   5: '포청천에게 01:12 기록을 다시 제시하고, "정보 유출 구조"를 검색해 보세요. 조건이 갖춰지면 그룹채팅에 무언가 올라옵니다.',
@@ -133,6 +133,25 @@ function has(id) {
 
 function countPrefix(prefix) {
   return state.unlocked.filter((c) => c.id.startsWith(prefix)).length;
+}
+
+// ===== 가짜 단서 =====
+function clueDef(id) {
+  return SEARCH_CLUES.find((c) => c.id === id);
+}
+
+function isRefuted(def) {
+  return !!(def && def.fake && def.refutedBy.some(has));
+}
+
+function refutationTitles(def) {
+  return def.refutedBy.filter(has).map((id) => (state.unlocked.find((c) => c.id === id) || {}).title).filter(Boolean);
+}
+
+function fakeStats() {
+  const found = state.unlocked.map((u) => clueDef(u.id)).filter((d) => d && d.fake);
+  const refuted = found.filter(isRefuted);
+  return { found, refuted };
 }
 
 // 신뢰도 = 이 NPC에게서 이미 알아낸 서로 다른 사실의 개수 (대화 + 증거 제시). 스팸으로는 늘릴 수 없음.
@@ -527,6 +546,8 @@ function handleSend() {
       parts.push('[미해결 의문]');
       open.forEach((q) => parts.push((q.resolvedBy.some(has) ? '✔ ' : '○ ') + q.text));
     }
+    const fs = fakeStats();
+    if (fs.refuted.length) parts.push('[반박된 기록 ' + fs.refuted.length + ' 개] ' + fs.refuted.map((d) => d.title).join(' / '));
     parts.push('[모은 단서 ' + state.unlocked.length + ' 개]');
     state.unlocked.slice(-8).forEach((c) => parts.push('· ' + c.title));
     if (state.unlocked.length > 8) parts.push('(전체 목록은 단서 수첩에서)');
@@ -723,6 +744,15 @@ function renderNotebook() {
       body.textContent = c.body;
       card.appendChild(title);
       card.appendChild(body);
+      const def = clueDef(c.id);
+      if (isRefuted(def)) {
+        card.classList.add('clue-refuted');
+        title.textContent = '✘ 반박됨 · ' + c.title;
+        const why = document.createElement('div');
+        why.className = 'clue-refute';
+        why.textContent = '→ 이 기록은 사실이 아니다. 근거: ' + refutationTitles(def).join(', ');
+        card.appendChild(why);
+      }
       list.appendChild(card);
     });
 }
@@ -784,8 +814,11 @@ function renderAccuse() {
     }
     const score = selections.filter((s, i) => s === FINAL_QUESTIONS[i].correct).length;
     const trueEnd = score === 5 && has('ev_demian_post');
+    const fs = fakeStats();
+    const perfect = trueEnd && fs.found.length >= 5 && fs.refuted.length === fs.found.length;
     let verdict;
-    if (trueEnd) verdict = '★ TRUE END — 데미안이 남긴 마지막 로그까지 전부 읽어 냈습니다.';
+    if (perfect) verdict = '★★ PERFECT — 진실에 도달했고, 찾아낸 가짜 기록을 하나도 남기지 않고 전부 반박했습니다.';
+    else if (trueEnd) verdict = '★ TRUE END — 데미안이 남긴 마지막 로그까지 전부 읽어 냈습니다.';
     else if (score === 5) verdict = '완벽한 추리입니다. 하지만 데미안의 예약 게시물은 아직 열지 못했습니다.';
     else if (score >= 3) verdict = '거의 다 왔습니다. 큰 흐름은 맞지만 세부 사항을 놓쳤습니다.';
     else verdict = '아직 사건의 실체에 닿지 못했습니다.';
@@ -794,9 +827,23 @@ function renderAccuse() {
     FINAL_QUESTIONS.forEach((q, i) => {
       const ok = selections[i] === q.correct;
       lines.push((ok ? '✔ ' : '✘ ') + q.q);
-      if (!ok) lines.push('   정답: ' + q.options[q.correct]);
+      if (!ok) {
+        lines.push('   정답: ' + q.options[q.correct]);
+        const bait = FAKE_CLUES.find((f) => f.bait.q === i && f.bait.opt === selections[i]);
+        if (bait && has(bait.id)) {
+          lines.push(
+            isRefuted(bait)
+              ? '   ⚠ 이미 반박된 기록 "' + bait.title + '"에 속았습니다.'
+              : '   ⚠ "' + bait.title + '" 기록에 속았습니다. 이 기록은 사실이 아닙니다 — 관련자에게 제시하면 반박됩니다.'
+          );
+        }
+      }
       lines.push('   근거: ' + q.why);
     });
+    if (fs.found.length) {
+      lines.push('', '[가짜 기록] 찾은 ' + fs.found.length + ' 개 중 ' + fs.refuted.length + ' 개 반박');
+      fs.found.forEach((d) => lines.push((isRefuted(d) ? '   ✘ ' : '   ○ ') + d.title));
+    }
     lines.push('', '[진실]', TRUE_STORY_TEXT);
     resultBox.className = 'accuse-result';
     resultBox.textContent = lines.join('\n');

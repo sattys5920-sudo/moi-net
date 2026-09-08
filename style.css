@@ -92,6 +92,9 @@ a:hover{color:#0d2f8f;}
 .loading-line{font-size:11px;color:#888;font-style:italic;padding:4px 0;}
 .evidence-row{display:flex;gap:6px;padding:0 8px 8px;}
 .evidence-select{flex:1;min-width:0;font-size:11px;font-family:Tahoma,Verdana,sans-serif;color:#000;background:#fff;border-top:2px solid #808080;border-left:2px solid #808080;border-right:2px solid #fff;border-bottom:2px solid #fff;padding:3px 4px;outline:none;}
+.clue-refuted .clue-title{color:#a33;text-decoration:line-through;}
+.clue-refuted .clue-body{color:#777;}
+.clue-refute{font-size:11px;color:#a33;margin-top:3px;}
 .clue-related{font-size:10.5px;color:#555;margin-top:3px;}
 .clue-related a{color:#1a4fd6;}
 .fieldrow{display:flex;justify-content:space-between;padding:6px 4px;font-size:12px;color:#000;border-bottom:1px solid #c8c8c8;}
