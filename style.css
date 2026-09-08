@@ -72,6 +72,17 @@ a:hover{color:#0d2f8f;}
 .tbtns{display:flex;gap:3px;}
 .tbtn{width:15px;height:13px;background:#c0c0c0;border-top:1px solid #fff;border-left:1px solid #fff;border-right:1px solid #1c1c1c;border-bottom:1px solid #1c1c1c;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;line-height:1;cursor:pointer;}
 .sunken{border-top:2px solid #808080;border-left:2px solid #808080;border-right:2px solid #fff;border-bottom:2px solid #fff;background:#fff;}
+
+.clue-card{border-bottom:1px solid #c8c8c8;padding-bottom:8px;}
+.clue-title{font-weight:700;font-size:12.5px;color:#000080;}
+.clue-body{font-size:11.5px;color:#000;margin-top:2px;line-height:1.4;}
+.clue-empty{font-size:12px;color:#888;padding:6px 2px;}
+
+.qgroup{margin-bottom:14px;}
+.qgroup-title{font-weight:700;margin-bottom:6px;font-size:12px;}
+.qoption{display:flex;align-items:center;gap:6px;margin-bottom:5px;cursor:pointer;font-size:11.5px;}
+.accuse-submit{cursor:pointer;display:inline-block;}
+.accuse-result{margin-top:14px;padding:10px;border:2px solid #000080;background:#f6f6f6;font-size:12px;line-height:1.5;}
 .fieldrow{display:flex;justify-content:space-between;padding:6px 4px;font-size:12px;color:#000;border-bottom:1px solid #c8c8c8;}
 .fileicon{display:flex;flex-direction:column;align-items:center;gap:3px;width:74px;padding:6px 2px;font-size:11px;color:#000;text-align:center;}
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>moi.net</title>
+<title>The Last Login</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -29,11 +29,15 @@
             </div>
             <div class="icontile" data-open="folder">
               <svg width="34" height="30" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width="0.6"/></svg>
-              <span class="iconlabel">내 폴더</span>
+              <span class="iconlabel">단서 수첩</span>
             </div>
             <div class="icontile" data-open="internet">
               <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="#3b7dd8" stroke="#1c3f6e" stroke-width="1.4"/><ellipse cx="17" cy="17" rx="14" ry="6" fill="none" stroke="#cfe4ff" stroke-width="1"/><ellipse cx="17" cy="17" rx="6" ry="14" fill="none" stroke="#cfe4ff" stroke-width="1"/><line x1="3" y1="17" x2="31" y2="17" stroke="#cfe4ff" stroke-width="1"/></svg>
               <span class="iconlabel">인터넷</span>
+            </div>
+            <div class="icontile" data-open="accuse">
+              <svg width="34" height="34" viewBox="0 0 34 34"><rect x="6" y="3" width="22" height="28" rx="2" fill="#f6efe0" stroke="#5a4a2a" stroke-width="1.2"/><path d="M11 10h12M11 15h12M11 20h7" stroke="#8a7a52" stroke-width="1.4"/><path d="M9 27l4-9 5 3-4 9z" fill="#c23b3b" stroke="#6e1f1f" stroke-width="1"/></svg>
+              <span class="iconlabel">최종 추리</span>
             </div>
           </div>
 
@@ -57,7 +61,7 @@
 
           <div id="view-chat" class="win hidden">
             <div class="titlebar">
-              <span>moi.net</span>
+              <span>moi.net - 미궁의 늪 갈대밭 지부</span>
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
             <div class="sunken chatlog" id="chat-log"></div>
@@ -83,35 +87,18 @@
 
           <div id="view-folder" class="win hidden">
             <div class="titlebar">
-              <span>내 폴더 - C:\MYDOCS</span>
+              <span>단서 수첩</span>
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
-            <div class="sunken" style="flex:1;margin:8px;padding:8px;display:flex;flex-wrap:wrap;align-content:flex-start;overflow:hidden;">
-              <div class="fileicon">
-                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/></svg>
-                일기.txt
-              </div>
-              <div class="fileicon">
-                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/></svg>
-                메모.txt
-              </div>
-              <div class="fileicon">
-                <svg width="16" height="18" viewBox="0 0 12 14"><rect x="0" y="0" width="12" height="14" rx="1" fill="#bfe4f5" stroke="#2a6a8a"/><circle cx="4" cy="5" r="1.4" fill="#ffd23f"/><path d="M0 11l4-4 3 3 3-4 2 2v3z" fill="#7bbf6a"/></svg>
-                사진.jpg
-              </div>
-              <div class="fileicon">
-                <svg width="14" height="12" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width=".6"/></svg>
-                다운로드
-              </div>
-              <div class="fileicon">
-                <svg width="16" height="18" viewBox="0 0 12 14"><path d="M1 0h6l4 4v9a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z" fill="#fff" stroke="#555"/><path d="M7 0v4h4" fill="none" stroke="#555"/><circle cx="5" cy="9" r="2.4" fill="none" stroke="#555" stroke-width=".8"/></svg>
-                음악.mp3
-              </div>
-              <div class="fileicon">
-                <svg width="16" height="18" viewBox="0 0 12 14"><rect x="0" y="0" width="12" height="14" rx="1" fill="#f5d9c8" stroke="#8a5a2a"/></svg>
-                졸업사진.bmp
-              </div>
+            <div class="sunken" id="notebook-list" style="flex:1;margin:8px;padding:8px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;"></div>
+          </div>
+
+          <div id="view-accuse" class="win hidden">
+            <div class="titlebar">
+              <span>최종 추리</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
+            <div id="accuse-body" style="flex:1;overflow-y:auto;padding:10px;font-size:12px;"></div>
           </div>
 
           <div id="view-internet" class="win hidden">
@@ -157,6 +144,7 @@
     </div>
   </div>
 
+  <script src="data.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -1,10 +1,16 @@
-# moi.net
+# The Last Login
 
-1989년식 CRT 모니터 바탕화면 컨셉의 데스크톱 프로토타입. 순수 HTML/CSS/JS라 빌드 과정이 없습니다.
+1989년식 CRT 모니터 바탕화면 컨셉으로 만든 인터넷 탐색형 추리 게임. 순수 HTML/CSS/JS라 빌드 과정이 없습니다.
 
-- 프로필 · moi.net(채팅) · 검색 · 내 폴더 · 인터넷 아이콘을 누르면 해당 화면이 열립니다.
-- moi.net 채팅은 실제로 동작합니다: 메시지를 입력하고 Enter나 "보내기"를 누르면 내 메시지가 아바타와 함께 대화창에 추가됩니다.
-- 창의 ✕ 버튼을 누르면 바탕화면으로 돌아갑니다.
+익명 채팅방 멤버 중 한 명(한도경)이 실종된다. 플레이어는 "검색" 아이콘을 통해 실제 인터넷을 조사하듯 키워드를 조합해가며 단서를 찾고, "moi.net" 채팅방 로그와 "단서 수첩"을 참고해 마지막에 "최종 추리" 화면에서 범인을 지목한다.
+
+- **moi.net** — 실종 전날 밤 채팅방 로그 (읽기 + 자유 채팅)
+- **검색** — 진짜 수사 시스템. 키워드를 입력하면 관련 단서가 나오고, 단서마다 새로운 검색어를 알려준다. 단서는 총 50개, 이전 단서를 먼저 찾아야 다음 단계가 열리는 체인 구조.
+- **단서 수첩** — 지금까지 발견한 단서가 자동으로 쌓인다.
+- **최종 추리** — 범인·장소·사진 조작 이유·범행 방법 4가지를 선택해 제출하면 완벽/부분/오답 3단계로 채점된다.
+- 프로필 · 인터넷 아이콘은 장식용 레거시 화면입니다.
+
+게임 데이터(등장인물, 50개 단서, 진실)는 `data.js`에, 로직은 `script.js`에 있습니다.
 
 ## 로컬에서 보기
 
@@ -16,32 +22,6 @@ npx serve .
 python3 -m http.server 8080
 ```
 
-## Firebase Hosting으로 배포하기
+## 배포
 
-1. **Firebase 프로젝트 만들기** — https://console.firebase.google.com/ 에서 "프로젝트 추가"
-2. **Firebase CLI 설치 & 로그인**
-   ```bash
-   npm install -g firebase-tools
-   firebase login
-   ```
-3. **이 저장소를 로컬에 클론한 뒤, 프로젝트 연결**
-   ```bash
-   git clone <이 저장소 주소>
-   cd moi-net
-   firebase use --add   # 1번에서 만든 프로젝트 선택
-   ```
-4. **첫 배포**
-   ```bash
-   firebase deploy --only hosting
-   ```
-   완료되면 `https://<프로젝트ID>.web.app` 링크가 나옵니다.
-
-## GitHub에 푸시할 때마다 자동 배포하기 (선택)
-
-Firebase CLI가 GitHub Actions 워크플로를 자동으로 만들어줍니다 (시크릿 설정까지 알아서 처리):
-
-```bash
-firebase init hosting:github
-```
-
-실행하면서 나오는 질문에 이 저장소를 선택하면, `main` 브랜치에 푸시할 때마다 자동 배포되도록 `.github/workflows/`에 워크플로 파일이 생성됩니다.
+이 저장소는 GitHub Actions(`.github/workflows/firebase-hosting-deploy.yml`)를 통해 `main` 브랜치에 push할 때마다 Firebase Hosting(moi-net 프로젝트)에 자동 배포됩니다. 별도 명령어 실행 없이 커밋만 올리면 됩니다.
