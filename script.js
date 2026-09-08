@@ -194,7 +194,7 @@ function switchView(view) {
   renderRoster();
   chatLog.innerHTML = '';
   if (view === 'group') {
-    addSysLine('[새벽 2시 그룹채팅방]');
+    addSysLine('[새벽 2 시 그룹채팅방]');
   } else {
     addSysLine('[' + view + ' 접속 중...]');
   }
@@ -204,21 +204,21 @@ function switchView(view) {
 
 function showIntro() {
   chatLog.innerHTML = '';
-  addSysLine('새벽 2시 채팅방에 입장했습니다. 현재 접속자 13명.');
+  addSysLine('새벽 2 시 채팅방에 입장했습니다. 현재 접속자 13 명.');
   ROSTER.concat(['데미안']).forEach((n) => addSysLine(n));
   addSysLine('그리고 당신.');
   addSysLine('23:58 고니: "데미안?"');
   addSysLine('00:01 계룡맛: "아직 안 왔는데?"');
   addSysLine('00:03 wkwkdfoq: "오늘 아예 안 오는 거 아님?"');
   addSysLine('00:05 고니: "얘 원래 이 시간엔 꼭 오는데."');
-  addSysLine('[데미안님의 마지막 접속: 18시간 전]');
+  addSysLine('[데미안님의 마지막 접속: 18 시간 전]');
 }
 
 function ensureNickname() {
   if (state.nickname) return false;
   let nick = '';
   while (!nick) {
-    nick = (window.prompt('닉네임을 입력하세요 (새벽 2시 채팅방에서 쓸 이름):') || '').trim();
+    nick = (window.prompt('닉네임을 입력하세요 (새벽 2 시 채팅방에서 쓸 이름):') || '').trim();
   }
   state.nickname = nick;
   saveState();
@@ -475,7 +475,7 @@ function renderAccuse() {
   submitBtn.addEventListener('click', () => {
     if (selections.some((s) => s === -1)) {
       resultBox.className = 'accuse-result';
-      resultBox.textContent = '5가지 질문에 모두 답해주세요.';
+      resultBox.textContent = '5 가지 질문에 모두 답해주세요.';
       return;
     }
     const score = selections.filter((s, i) => s === FINAL_QUESTIONS[i].correct).length;
