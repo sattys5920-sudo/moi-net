@@ -1,0 +1,20 @@
+{
+  "rules": {
+    "rooms": {
+      "$code": {
+        ".read": true,
+        ".write": true,
+        ".validate": "$code.matches(/^[A-Z0-9]{6}$/)",
+        "chat": {
+          "$msg": {
+            ".validate": "newData.hasChildren(['t', 'type', 'text']) && newData.child('text').val().length < 2000"
+          }
+        }
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

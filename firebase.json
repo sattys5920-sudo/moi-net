@@ -5,7 +5,11 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
-      "README.md"
+      "README.md",
+      "database.rules.json"
     ]
+  },
+  "database": {
+    "rules": "database.rules.json"
   }
 }

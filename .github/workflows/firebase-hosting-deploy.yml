@@ -1,4 +1,4 @@
-name: Deploy to Firebase Hosting on push
+name: Deploy to Firebase on push
 
 on:
   push:
@@ -16,3 +16,19 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_MOI_NET }}'
           channelId: live
           projectId: moi-net
+
+  # Realtime Database 보안 규칙 배포. 콘솔에서 Realtime Database를 아직 만들지 않았으면 이 잡만 실패하고 Hosting은 정상 배포된다.
+  deploy_database_rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_MOI_NET }}'
+      - name: Deploy database rules
+        run: |
+          npm install -g firebase-tools
+          firebase deploy --only database --project moi-net --non-interactive

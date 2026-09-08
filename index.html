@@ -14,6 +14,31 @@
       <div class="screenshell">
         <div class="screen">
 
+          <div id="view-lobby" class="win hidden" style="z-index:5;">
+            <div class="titlebar">
+              <span>LAST LOG : 마지막 접속 — 함께 접속</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn">✕</div></div>
+            </div>
+            <div class="lobby">
+              <div class="lobby-hero">
+                <div class="lobby-title">새벽 2 시 채팅방</div>
+                <div class="lobby-sub">최대 12 명이 한 방에서 같은 사건을 조사합니다. 취조는 각자, 단서·수첩·추리 보드는 함께.</div>
+              </div>
+              <label class="lobby-label">닉네임</label>
+              <input id="lobby-name" class="chatinput" placeholder="채팅방에서 쓸 이름" maxlength="12" autocomplete="off">
+              <div class="lobby-row">
+                <div class="toolbtn lobby-btn" id="lobby-create">새 방 만들기</div>
+              </div>
+              <label class="lobby-label">또는 방 코드로 참가</label>
+              <div class="lobby-row">
+                <input id="lobby-code" class="chatinput" placeholder="예: A3K9QX" maxlength="6" autocomplete="off" style="text-transform:uppercase;">
+                <div class="toolbtn lobby-btn" id="lobby-join">참가</div>
+              </div>
+              <div id="lobby-msg" class="lobby-msg"></div>
+              <div id="lobby-mode" class="lobby-mode"></div>
+            </div>
+          </div>
+
           <div id="view-desktop" class="desktop-icons">
             <div class="icontile" data-open="profile">
               <svg width="34" height="34" viewBox="0 0 34 34"><rect x="1" y="1" width="32" height="32" rx="4" fill="#dbe6f5" stroke="#33465c" stroke-width="1.2"/><circle cx="17" cy="13" r="6" fill="#f2c48a" stroke="#8a5a2a" stroke-width="1"/><path d="M6 29c1.5-7 8-9 11-9s9.5 2 11 9" fill="#3b6fa8" stroke="#20456e" stroke-width="1"/></svg>
@@ -65,7 +90,7 @@
 
           <div id="view-chat" class="win hidden">
             <div class="titlebar">
-              <span>moi.net - 새벽 2 시 <span id="day-tag"></span></span>
+              <span>moi.net <span id="day-tag"></span> <span id="room-tag" class="room-tag"></span></span>
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
             <div class="roster" id="roster"></div>
@@ -161,6 +186,10 @@
     </div>
   </div>
 
+  <script src="/__/firebase/10.12.5/firebase-app-compat.js"></script>
+  <script src="/__/firebase/10.12.5/firebase-database-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <script src="store.js"></script>
   <script src="data.js"></script>
   <script src="script.js"></script>
 </body>

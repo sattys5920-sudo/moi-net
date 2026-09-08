@@ -152,3 +152,19 @@ a:hover{color:#0d2f8f;}
 .controls{width:100%;display:flex;justify-content:center;align-items:center;gap:20px;margin-top:13px;}
 .slit{width:36px;height:9px;border-radius:5px;background:#c7c1b1;box-shadow:inset 0 1px 2px rgba(0,0,0,.35);}
 .knob{width:13px;height:13px;border-radius:50%;background:#c7c1b1;box-shadow:inset 0 1px 2px rgba(0,0,0,.35);}
+
+.lobby{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;}
+.lobby-hero{margin-bottom:6px;}
+.lobby-title{font-family:Georgia,serif;font-size:18px;font-weight:700;color:#000080;}
+.lobby-sub{font-size:11px;color:#444;line-height:1.5;margin-top:3px;}
+.lobby-label{font-size:11px;font-weight:700;color:#333;margin-top:6px;}
+.lobby-row{display:flex;gap:6px;align-items:center;}
+.lobby-btn{width:auto;padding:0 12px;height:26px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.lobby-msg{font-size:11px;color:#a33;min-height:14px;margin-top:4px;}
+.lobby-mode{font-size:10.5px;color:#666;margin-top:auto;line-height:1.4;border-top:1px solid #aaa;padding-top:6px;}
+.room-tag{font-weight:400;font-size:11px;opacity:.85;}
+.name-tag{font-size:10px;color:#555;font-weight:700;}
+.name-player{color:#7a2f8a;}
+.avatar-player{background:#e9d8f0;border-color:#7a2f8a;color:#7a2f8a;font-size:10px;font-weight:700;}
+.bubble-player{background:#f3eaf7;border-color:#c9a9d6;}
+.clue-by{font-size:10px;color:#7a2f8a;margin-top:2px;text-align:right;}
