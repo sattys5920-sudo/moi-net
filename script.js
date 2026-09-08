@@ -43,20 +43,37 @@ document.querySelectorAll('[data-close]').forEach((el) => {
 // 부분 입력 허용(한 단어 키워드), 여러 단어 키워드는 통째로 포함되어야 함.
 // 반환값: 매치된 키워드 중 가장 긴 것의 길이 (0이면 매치 없음). 길수록 더 구체적인 질문으로 본다.
 function norm(s) {
-  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return (s || '')
+    .toLowerCase()
+    .replace(/[?!.,~…"'“”]+/g, ' ')
+    .replace(/[ㅋㅎㅠㅜ]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+// 비교는 띄어쓰기를 전부 무시하고 한다 ("23시 18분" == "23 시 18 분" == "23시18분")
+function squash(s) {
+  return norm(s).replace(/\s/g, '');
 }
 
 function keywordScore(keywords, q) {
-  const nq = norm(q);
+  const nq = squash(q);
   if (!nq) return 0;
   let best = 0;
   keywords.forEach((k) => {
-    const nk = norm(k);
-    const hit = nq.includes(nk) || (!nk.includes(' ') && nk.includes(nq));
-    if (hit && nk.length > best) best = nk.length;
+    const nk = squash(k);
+    if (!nk) return;
+    const spaced = norm(k);
+    const single = !spaced.includes(' ');
+    const hit = nq.includes(nk) || (single && nk.includes(nq));
+    // 점수는 띄어쓰기를 포함한 길이: "왜 싸웠"(4)이 "데미안"(3)보다 구체적이다
+    if (hit && spaced.length > best) best = spaced.length;
   });
   return best;
 }
+
+const CONTINUE_RE = /^(응|어|음|오|헐|그래서|계속|더|더 말해 ?줘|더 말해|자세히|그리고|그 ?다음|왜|진짜|그래|응응|ㅇㅇ|ㅇㅋ|근데|근데 왜|그런데|말해 ?줘|말해 ?봐|그래서 뭐|그리고 나서|또)$/;
+const PROBE_RE = /(숨기|숨긴|숨겨|비밀 ?있|거짓말 ?하|거짓말 ?이|뭐 ?있지|수상|요즘 ?어땠|요즘 ?어때|이상한 ?거 ?없|할 ?말 ?없|말 ?안 ?한 ?거|솔직히 ?말)/;
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -411,6 +428,38 @@ const DEEPER_HINTS = {
   requires: '(...뭔가 더 알고 있는 눈치다. 근거를 들이대면 달라질지도.)',
 };
 
+// 이 NPC에게서 지금 당장 열 수 있는데 아직 안 들은 대사 (이어 말하기용). 같은 날짜 화제를 우선.
+function nextUnheard(npc, preferDay) {
+  const list = (NPC_DIALOGUE[npc] || []).filter((e) => !has(e.id) && gateStatus(e, npc) === 'ok');
+  if (!list.length) return null;
+  const same = list.filter((e) => e.day === preferDay);
+  if (same.length) return same[0];
+  let best = list[0];
+  list.forEach((e) => {
+    if (e.day > best.day) best = e;
+  });
+  return best;
+}
+
+// 떠보기에 대한 답 뒤에 붙일 "지금 뭐가 부족한지" 힌트
+function lockedHintFor(npc) {
+  let pick = null;
+  (NPC_DIALOGUE[npc] || []).forEach((e) => {
+    const st = gateStatus(e, npc);
+    if (st === 'ok' || st === 'day') return;
+    if (!pick || e.day < pick.entry.day) pick = { entry: e, status: st };
+  });
+  if (!pick) return null;
+  const lines = [DEEPER_HINTS[pick.status]];
+  if (pick.status === 'requires' && pick.entry.requiresHint) lines.push('(힌트: ' + pick.entry.requiresHint + ')');
+  return lines;
+}
+
+function mentionedOther(npc, text) {
+  const sq = squash(text);
+  return ROSTER.find((n) => n !== npc && sq.includes(squash(n))) || null;
+}
+
 function findGroupReaction(text) {
   let best = null;
   GROUP_REACTIONS.forEach((r) => {
@@ -582,16 +631,64 @@ function handleSend() {
   }
 
   const npc = view;
-  const found = findNpcDialogue(npc, text);
   const entries = [];
+
+  // 1) 이어 말하기: "응", "그래서?", "더 말해줘" → 같은 화제의 아직 안 들은 대사
+  if (CONTINUE_RE.test(norm(text))) {
+    const next = nextUnheard(npc, thread.lastDay || state.day);
+    if (next) {
+      entries.push({ type: 'npc', text: next.body, speaker: npc });
+      unlockClue(next.id, next.title, next.body, next.day);
+      entries.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + next.title + ' (신뢰도 ' + trustFor(npc) + ')' });
+      thread.lastDay = next.day;
+    } else {
+      entries.push({ type: 'npc', text: CONTINUE_END[npc] || '...그게 다야.', speaker: npc });
+    }
+    pushLines(npc, entries);
+    saveState();
+    return;
+  }
+
+  let found = findNpcDialogue(npc, text);
+
+  // 2) 다른 NPC 얘기: 그 이름을 가진 전용 키워드가 없으면 인물평으로 답한다
+  const other = mentionedOther(npc, text);
+  if (other && !(found && found.entry.keywords.some((k) => squash(k).includes(squash(other))))) {
+    const line = NPC_OPINIONS[npc] && NPC_OPINIONS[npc][other];
+    if (line) {
+      entries.push({ type: 'npc', text: line, speaker: npc });
+      pushLines(npc, entries);
+      saveState();
+      return;
+    }
+  }
+
+  // 3) 떠보기: "뭐 숨기는 거 있지?" → 회피 + 지금 뭐가 부족한지
+  if ((!found || found.score < 4) && PROBE_RE.test(norm(text))) {
+    entries.push({ type: 'npc', text: PROBE_LINES[npc], speaker: npc });
+    const hint = lockedHintFor(npc);
+    if (hint) hint.forEach((t) => entries.push({ type: 'sys', text: t }));
+    else entries.push({ type: 'sys', text: '(지금은 더 숨기는 게 없어 보인다.)' });
+    pushLines(npc, entries);
+    saveState();
+    return;
+  }
+
   if (!found) {
-    entries.push({ type: 'npc', text: pickRandom(NPC_DEFAULT_LINES), speaker: npc });
+    thread.misses = (thread.misses || 0) + 1;
+    const aboutDemian = squash(text).includes('데미안') || squash(text).includes('걔');
+    entries.push({ type: 'npc', text: pickRandom(aboutDemian ? TOPIC_FALLBACK : NPC_DEFAULT_LINES), speaker: npc });
+    if (thread.misses % 2 === 0) {
+      entries.push({ type: 'sys', text: '(힌트: 시간·장소·사람 이름처럼 구체적인 단어로 물어보거나, 아래 메뉴로 수첩의 단서를 제시해 보세요. "응", "그래서?"라고 하면 하던 얘기를 이어 갑니다.)' });
+    }
   } else if (found.status !== 'ok') {
     entries.push({ type: 'npc', text: pickRandom(LOCKED_LINES[found.status]), speaker: npc });
     if (found.status === 'requires' && found.entry.requiresHint) {
       entries.push({ type: 'sys', text: '(힌트: ' + found.entry.requiresHint + ')' });
     }
   } else {
+    thread.misses = 0;
+    thread.lastDay = found.entry.day;
     entries.push({ type: 'npc', text: found.entry.body, speaker: npc });
     if (unlockClue(found.entry.id, found.entry.title, found.entry.body, found.entry.day)) {
       entries.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + found.entry.title + ' (신뢰도 ' + trustFor(npc) + ')' });
