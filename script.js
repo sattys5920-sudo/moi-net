@@ -330,14 +330,40 @@ function switchView(view) {
   }
 }
 
+// ===== 퍼즐 조각 =====
+// 조각은 방 수첩의 단서 텍스트에서 나온다. 반환: [{text, by}] (by = 그 조각을 처음 열어 준 단서를 찾은 사람)
+function availablePieces(poolName) {
+  const pool = PIECE_POOLS[poolName];
+  if (!pool) return [];
+  if (pool.always) return pool.pieces.map((p) => ({ text: p.text, by: null }));
+  const sorted = state.unlocked.slice().sort((a, b) => (a.t || 0) - (b.t || 0));
+  const out = [];
+  pool.pieces.forEach((p) => {
+    const src = sorted.find((c) => p.match.some((m) => squash(c.title + ' ' + c.body).includes(squash(m))));
+    if (src) out.push({ text: p.text, by: src.by || null });
+  });
+  return out;
+}
+function allPieceTexts() {
+  const set = new Set();
+  Object.keys(PIECE_POOLS).forEach((k) => {
+    if (PIECE_POOLS[k].always) return;
+    availablePieces(k).forEach((p) => set.add(PIECE_POOLS[k].label + ':' + p.text));
+  });
+  return set;
+}
+
 // ===== 단서(공유) =====
 function unlockClue(id, title, body, day, opts) {
   if (has(id)) return false;
+  const before = allPieceTexts();
   const rec = { id, title, body, day, by: me.name, t: Date.now() };
   state.unlocked.push(rec);
   renderEvidenceRow();
   Store.setIfAbsent(rp('unlocked/' + id), { title, body, day, by: me.name, t: rec.t });
   if (!(opts && opts.silent)) postSys('📎 ' + me.name + ' — ' + title);
+  const fresh = Array.from(allPieceTexts()).filter((k) => !before.has(k)).map((k) => k.split(':').slice(1).join(':'));
+  if (fresh.length) postSys('🧩 새 조각: ' + fresh.join(', ') + ' (' + me.name + ')');
   return true;
 }
 
@@ -510,14 +536,18 @@ async function advanceDay() {
 // ===== 추리 보드(공유) =====
 function boardState(id) {
   const b = state.boards[id] || {};
-  return { picks: b.picks || {}, locked: b.locked || {}, solved: !!b.solved };
+  return { picks: b.picks || {}, locked: b.locked || {}, solved: !!b.solved, by: b.by || {} };
 }
 function setPick(boardId, i, val) {
-  if (!state.boards[boardId]) state.boards[boardId] = { picks: {}, locked: {}, solved: false };
+  if (!state.boards[boardId]) state.boards[boardId] = { picks: {}, locked: {}, solved: false, by: {} };
   if (!state.boards[boardId].picks) state.boards[boardId].picks = {};
+  if (!state.boards[boardId].by) state.boards[boardId].by = {};
   state.boards[boardId].picks[i] = val;
-  Store.update(rp('boards/' + boardId + '/picks'), { [i]: val });
+  state.boards[boardId].by[i] = val ? me.name : null;
+  Store.update(rp('boards/' + boardId + '/picks'), { [i]: val || null });
+  Store.update(rp('boards/' + boardId + '/by'), { [i]: val ? me.name : null });
 }
+const selectedSlot = {}; // boardId -> slot index (조각을 끼울 칸)
 function checkBoard(board) {
   const bs = boardState(board.id);
   const unlockedIdx = board.slots.map((_, i) => i).filter((i) => !bs.locked[i]);
@@ -572,21 +602,25 @@ function renderBoard(container, board, onSolved, onChange) {
       fixed.textContent = slot.answer;
       row.appendChild(fixed);
     } else {
-      const sel = document.createElement('select');
-      sel.className = 'slot-select';
-      const ph = document.createElement('option');
-      ph.value = '';
-      ph.textContent = '［ ? ］';
-      sel.appendChild(ph);
-      slot.choices.forEach((c) => {
-        const o = document.createElement('option');
-        o.value = c;
-        o.textContent = c;
-        if (bs.picks[i] === c) o.selected = true;
-        sel.appendChild(o);
+      const box = document.createElement('span');
+      const isSel = selectedSlot[board.id] === i;
+      box.className = 'slot-box' + (bs.picks[i] ? ' filled' : '') + (isSel ? ' selected' : '');
+      box.textContent = bs.picks[i] || '［ ? ］';
+      box.title = PIECE_POOLS[slot.pool] ? PIECE_POOLS[slot.pool].label + ' 조각을 끼우세요' : '';
+      if (bs.picks[i] && bs.by[i]) {
+        const by = document.createElement('small');
+        by.className = 'slot-by';
+        by.textContent = bs.by[i];
+        box.appendChild(by);
+      }
+      box.addEventListener('click', () => {
+        if (bs.picks[i] && isSel) {
+          setPick(board.id, i, '');
+          selectedSlot[board.id] = null;
+        } else selectedSlot[board.id] = isSel ? null : i;
+        onChange ? onChange() : (container.innerHTML = '', renderBoard(container, board, onSolved, onChange));
       });
-      sel.addEventListener('change', () => setPick(board.id, i, sel.value));
-      row.appendChild(sel);
+      row.appendChild(box);
     }
     row.appendChild(document.createTextNode(after || ''));
     if (bs.solved && slot.why) {
@@ -598,6 +632,54 @@ function renderBoard(container, board, onSolved, onChange) {
     wrap.appendChild(row);
   });
   if (!bs.solved) {
+    const tray = document.createElement('div');
+    tray.className = 'piece-tray';
+    const pools = Array.from(new Set(board.slots.filter((_, i) => !bs.locked[i]).map((sl) => sl.pool)));
+    const selIdx = selectedSlot[board.id];
+    const selPool = selIdx != null ? board.slots[selIdx].pool : null;
+    let total = 0;
+    pools.forEach((pn) => {
+      const pool = PIECE_POOLS[pn];
+      const avail = availablePieces(pn);
+      total += avail.length;
+      const group = document.createElement('div');
+      group.className = 'piece-group' + (selPool && selPool !== pn ? ' dim' : '');
+      const label = document.createElement('span');
+      label.className = 'piece-label';
+      label.textContent = pool.label + (pool.always ? '' : ' ' + avail.length + '/' + pool.pieces.length);
+      group.appendChild(label);
+      if (!avail.length) {
+        const none = document.createElement('span');
+        none.className = 'piece-none';
+        none.textContent = '아직 발견된 조각 없음';
+        group.appendChild(none);
+      }
+      avail.forEach((p) => {
+        const chip = document.createElement('span');
+        const used = board.slots.some((sl, i) => !bs.locked[i] && bs.picks[i] === p.text && sl.pool === pn);
+        chip.className = 'piece' + (used ? ' used' : '');
+        chip.textContent = p.text;
+        if (p.by) chip.title = p.by + ' 발견';
+        chip.addEventListener('click', () => {
+          let target = selectedSlot[board.id];
+          if (target == null || board.slots[target].pool !== pn) {
+            target = board.slots.findIndex((sl, i) => sl.pool === pn && !bs.locked[i] && !bs.picks[i]);
+            if (target < 0) target = board.slots.findIndex((sl, i) => sl.pool === pn && !bs.locked[i]);
+          }
+          if (target < 0) return;
+          setPick(board.id, target, p.text);
+          selectedSlot[board.id] = null;
+          onChange ? onChange() : (container.innerHTML = '', renderBoard(container, board, onSolved, onChange));
+        });
+        group.appendChild(chip);
+      });
+      tray.appendChild(group);
+    });
+    const trayHead = document.createElement('div');
+    trayHead.className = 'piece-head';
+    trayHead.textContent = selIdx != null ? '▶ ' + (selIdx + 1) + '번 칸에 끼울 조각을 고르세요' : '조각을 누르면 빈칸에 끼워집니다. 칸을 먼저 누르면 그 칸에.';
+    wrap.appendChild(trayHead);
+    wrap.appendChild(tray);
     const btnRow = document.createElement('div');
     btnRow.className = 'board-actions';
     const btn = document.createElement('div');
@@ -634,13 +716,13 @@ function renderBoard(container, board, onSolved, onChange) {
 let lastBoardsJSON = '';
 function renderBoardScreen(force) {
   const body = document.getElementById('board-body');
-  const json = JSON.stringify(state.boards) + state.day;
+  const json = JSON.stringify(state.boards) + state.day + ':' + state.unlocked.length;
   if (!force && json === lastBoardsJSON && body.children.length) return;
   lastBoardsJSON = json;
   body.innerHTML = '';
   const info = document.createElement('div');
   info.className = 'board-intro';
-  info.textContent = '방 전체가 함께 채우는 보드입니다. 어느 칸이 틀렸는지는 알려 주지 않습니다 — 맞은 칸이 3 개 이상 모이면 잠깁니다. 오늘 보드를 다 잠그면 방장이 다음 날로 넘길 수 있습니다.';
+  info.textContent = '방 전체가 함께 채우는 보드입니다. 조각은 방 수첩에 단서가 모일수록 늘어납니다. 어느 칸이 틀렸는지는 알려 주지 않습니다 — 맞은 칸이 3 개 이상 모이면 잠깁니다.';
   body.appendChild(info);
   BOARDS.filter((b) => !b.final && b.day <= state.day)
     .sort((a, b) => b.day - a.day)
@@ -1002,6 +1084,8 @@ function onRoomChange(section) {
       if (!document.getElementById('view-accuse').classList.contains('hidden') && section === 'boards') renderAccuse();
     }
     if (section === 'unlocked' && !document.getElementById('view-folder').classList.contains('hidden')) renderNotebook();
+    if (section === 'unlocked' && !document.getElementById('view-board').classList.contains('hidden')) renderBoardScreen();
+    if (section === 'unlocked' && !document.getElementById('view-accuse').classList.contains('hidden')) renderAccuse();
     if (section === 'meta' || section === 'unlocked') checkGroupEvents();
   }
 }
