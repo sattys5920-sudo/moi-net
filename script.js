@@ -94,7 +94,7 @@ function saveState() {
 function freshThreads() {
   const t = { group: { history: [] } };
   ROSTER.forEach((n) => {
-    t[n] = { history: [], trust: 0 };
+    t[n] = { history: [] };
   });
   return t;
 }
@@ -226,8 +226,9 @@ function ensureNickname() {
 }
 
 function unlockClue(id, title, body, day) {
-  if (state.unlocked.some((c) => c.id === id)) return;
+  if (state.unlocked.some((c) => c.id === id)) return false;
   state.unlocked.push({ id, title, body, day });
+  return true;
 }
 
 function advanceDay() {
@@ -241,15 +242,25 @@ function advanceDay() {
   saveState();
 }
 
+// 신뢰도 = 이 NPC에게서 이미 알아낸 서로 다른 사실의 개수 (스팸으로 늘릴 수 없음)
+function trustFor(npc) {
+  const prefix = npc + '_d';
+  return state.unlocked.filter((c) => c.id.startsWith(prefix)).length;
+}
+
 function findNpcDialogue(npc, text) {
-  const thread = state.threads[npc];
+  const trust = trustFor(npc);
   const list = NPC_DIALOGUE[npc] || [];
+  let best = null;
   for (const entry of list) {
     if (entry.day > state.day) continue;
-    if ((entry.trustMin || 0) > (thread.trust || 0)) continue;
-    if (matchesQuery(entry.keywords, text)) return entry;
+    if ((entry.trustMin || 0) > trust) continue;
+    if (!matchesQuery(entry.keywords, text)) continue;
+    if (!best || entry.day > best.day || (entry.day === best.day && (entry.trustMin || 0) > (best.trustMin || 0))) {
+      best = entry;
+    }
   }
-  return null;
+  return best;
 }
 
 function runSearchQuery(q) {
@@ -332,7 +343,6 @@ function handleSend() {
     replyText = pickRandom(NPC_DEFAULT_LINES);
   }
   thread.history.push({ type: 'npc', text: replyText });
-  thread.trust = Math.min(10, (thread.trust || 0) + 1);
   addMessage('other', replyText, npc);
   saveState();
 }
