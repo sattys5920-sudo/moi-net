@@ -31,6 +31,10 @@
               <svg width="34" height="30" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width="0.6"/></svg>
               <span class="iconlabel">단서 수첩</span>
             </div>
+            <div class="icontile" data-open="board">
+              <svg width="34" height="34" viewBox="0 0 34 34"><rect x="2" y="4" width="30" height="24" rx="2" fill="#2f5d3a" stroke="#1b3a22" stroke-width="1.2"/><rect x="5" y="7" width="24" height="18" fill="#3b7a4a"/><path d="M8 12h8M8 16h12M8 20h6" stroke="#eaf4dc" stroke-width="1.6" stroke-linecap="round"/><rect x="21" y="18" width="6" height="4" fill="#ffd23f" stroke="#8a6a12" stroke-width="0.8"/></svg>
+              <span class="iconlabel">추리 보드</span>
+            </div>
             <div class="icontile" data-open="internet">
               <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="#3b7dd8" stroke="#1c3f6e" stroke-width="1.4"/><ellipse cx="17" cy="17" rx="14" ry="6" fill="none" stroke="#cfe4ff" stroke-width="1"/><ellipse cx="17" cy="17" rx="6" ry="14" fill="none" stroke="#cfe4ff" stroke-width="1"/><line x1="3" y1="17" x2="31" y2="17" stroke="#cfe4ff" stroke-width="1"/></svg>
               <span class="iconlabel">인터넷</span>
@@ -96,6 +100,14 @@
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
             <div class="sunken" id="notebook-list" style="flex:1;margin:8px;padding:8px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;"></div>
+          </div>
+
+          <div id="view-board" class="win hidden">
+            <div class="titlebar">
+              <span>추리 보드</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div id="board-body" style="flex:1;overflow-y:auto;padding:10px;font-size:12px;"></div>
           </div>
 
           <div id="view-accuse" class="win hidden">

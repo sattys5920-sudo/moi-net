@@ -1,9 +1,10 @@
-const SCREENS = ['profile', 'chat', 'search', 'folder', 'internet', 'accuse'];
+const SCREENS = ['profile', 'chat', 'search', 'folder', 'board', 'internet', 'accuse'];
 const TITLES = {
   profile: '내 프로필',
   chat: 'moi.net',
   search: '검색',
   folder: '단서 수첩',
+  board: '추리 보드',
   internet: '인터넷 브라우저',
   accuse: '최종 추리',
 };
@@ -23,6 +24,7 @@ function openScreen(name) {
   taskappArea.appendChild(label);
   if (name === 'chat') renderRoster();
   if (name === 'folder') renderNotebook();
+  if (name === 'board') renderBoardScreen();
   if (name === 'accuse') renderAccuse();
 }
 
@@ -91,6 +93,7 @@ const DAY_HINTS = {
 const HELP_LINES = [
   '명령어: 닉네임 입력 → 1:1 채팅 | 그룹채팅 | 검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 오늘은 여기까지',
   '1:1 채팅에서는 아래 "증거 제시" 메뉴로 수첩의 단서를 상대에게 보여 줄 수 있습니다.',
+  '바탕화면의 "추리 보드"에서 오늘의 빈칸을 전부 맞히면 다음 날로 넘어갈 수 있습니다.',
 ];
 
 function loadState() {
@@ -113,6 +116,7 @@ function saveState() {
         unlocked: state.unlocked,
         presented: state.presented,
         events: state.events,
+        boards: state.boards,
       })
     );
   } catch (e) {}
@@ -140,6 +144,7 @@ const state =
 // 이전 버전 저장 데이터 호환
 state.presented = state.presented || [];
 state.events = state.events || [];
+state.boards = state.boards || {};
 ROSTER.forEach((n) => {
   if (!state.threads[n]) state.threads[n] = { history: [] };
 });
@@ -309,6 +314,157 @@ function goalLines(day) {
   return goals.map((g) => (g.check(state) ? '✔ ' : '○ ') + g.label);
 }
 
+// ===== 추리 보드 =====
+function boardState(id) {
+  if (!state.boards[id]) state.boards[id] = { picks: {}, locked: {}, solved: false };
+  return state.boards[id];
+}
+
+function boardForDay(day) {
+  return BOARDS.find((b) => b.day === day && !b.final);
+}
+
+function boardSolved(id) {
+  return !!(state.boards[id] && state.boards[id].solved);
+}
+
+// 확인: 맞은 칸이 3 개 이상(또는 남은 칸 전부)이면 그 칸들을 잠근다. 어느 칸이 틀렸는지는 알려 주지 않는다.
+function checkBoard(board) {
+  const bs = boardState(board.id);
+  const unlockedIdx = board.slots.map((_, i) => i).filter((i) => !bs.locked[i]);
+  const correct = unlockedIdx.filter((i) => bs.picks[i] === board.slots[i].answer);
+  const wrong = unlockedIdx.length - correct.length;
+  const canLock = correct.length >= 3 || (correct.length > 0 && correct.length === unlockedIdx.length);
+  if (canLock) correct.forEach((i) => { bs.locked[i] = true; });
+  const allLocked = board.slots.every((_, i) => bs.locked[i]);
+  let justSolved = false;
+  if (allLocked && !bs.solved) {
+    bs.solved = true;
+    justSolved = true;
+    if (board.reward) unlockClue(board.reward.id, board.reward.title, board.reward.body, state.day);
+    checkGroupEvents();
+  }
+  saveState();
+  return { wrong, lockedNow: canLock ? correct.length : 0, justSolved, solved: bs.solved };
+}
+
+function renderBoard(container, board, onSolved) {
+  const bs = boardState(board.id);
+  const wrap = document.createElement('div');
+  wrap.className = 'board' + (bs.solved ? ' board-solved' : '');
+
+  const head = document.createElement('div');
+  head.className = 'board-title';
+  head.textContent = (bs.solved ? '✔ ' : '') + board.title;
+  wrap.appendChild(head);
+  if (!bs.solved && board.intro) {
+    const intro = document.createElement('div');
+    intro.className = 'board-intro';
+    intro.textContent = board.intro;
+    wrap.appendChild(intro);
+  }
+
+  board.slots.forEach((slot, i) => {
+    const row = document.createElement('div');
+    row.className = 'board-row' + (bs.locked[i] ? ' locked' : '');
+    const [before, after] = slot.text.split('[ ]');
+    row.appendChild(document.createTextNode(before));
+    if (bs.locked[i]) {
+      const fixed = document.createElement('span');
+      fixed.className = 'slot-fixed';
+      fixed.textContent = slot.answer;
+      row.appendChild(fixed);
+    } else {
+      const sel = document.createElement('select');
+      sel.className = 'slot-select';
+      const ph = document.createElement('option');
+      ph.value = '';
+      ph.textContent = '［ ? ］';
+      sel.appendChild(ph);
+      slot.choices.forEach((c) => {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        if (bs.picks[i] === c) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', () => {
+        bs.picks[i] = sel.value;
+        saveState();
+      });
+      row.appendChild(sel);
+    }
+    row.appendChild(document.createTextNode(after || ''));
+    if (bs.solved && slot.why) {
+      const why = document.createElement('div');
+      why.className = 'slot-why';
+      why.textContent = '근거: ' + slot.why;
+      row.appendChild(why);
+    }
+    wrap.appendChild(row);
+  });
+
+  if (!bs.solved) {
+    const btnRow = document.createElement('div');
+    btnRow.className = 'board-actions';
+    const btn = document.createElement('div');
+    btn.className = 'toolbtn accuse-submit';
+    btn.style.width = '90px';
+    btn.style.fontWeight = '700';
+    btn.textContent = '확인';
+    const msg = document.createElement('div');
+    msg.className = 'board-msg';
+    btn.addEventListener('click', () => {
+      const empty = board.slots.filter((_, i) => !bs.locked[i] && !bs.picks[i]).length;
+      if (empty) {
+        msg.textContent = '빈칸 ' + empty + ' 개를 먼저 채우세요.';
+        return;
+      }
+      const r = checkBoard(board);
+      if (r.justSolved) {
+        msg.textContent = '';
+        onSolved && onSolved();
+        container.innerHTML = '';
+        renderBoard(container, board, onSolved);
+        return;
+      }
+      if (r.lockedNow) {
+        msg.textContent = r.lockedNow + ' 칸이 확정되었습니다. 틀린 칸 ' + r.wrong + ' 개.';
+        container.innerHTML = '';
+        renderBoard(container, board, onSolved);
+        container.querySelector('.board-msg').textContent = msg.textContent;
+        return;
+      }
+      msg.textContent = r.wrong === 0 ? '' : '틀린 칸 ' + r.wrong + ' 개. (맞은 칸이 3 개 이상 모여야 확정됩니다)';
+    });
+    btnRow.appendChild(btn);
+    btnRow.appendChild(msg);
+    wrap.appendChild(btnRow);
+  }
+  container.appendChild(wrap);
+}
+
+function renderBoardScreen() {
+  const body = document.getElementById('board-body');
+  body.innerHTML = '';
+  const info = document.createElement('div');
+  info.className = 'board-intro';
+  info.textContent = '빈칸을 채우고 "확인". 어느 칸이 틀렸는지는 알려 주지 않습니다 — 맞은 칸이 3 개 이상 모이면 잠깁니다. 오늘 보드를 다 잠그면 다음 날로 갈 수 있습니다.';
+  body.appendChild(info);
+  BOARDS.filter((b) => !b.final && b.day <= state.day)
+    .sort((a, b) => b.day - a.day)
+    .forEach((b) => {
+      const box = document.createElement('div');
+      body.appendChild(box);
+      renderBoard(box, b, () => {
+        const done = document.createElement('div');
+        done.className = 'board-done';
+        done.textContent = '✔ ' + b.title + ' 완성! 수첩에 정리가 기록되었고, 그룹채팅에 반응이 올라왔습니다. 이제 "오늘은 여기까지"로 넘어갈 수 있습니다.';
+        body.insertBefore(done, body.firstChild.nextSibling);
+      });
+    });
+}
+
 function showIntro() {
   chatLog.innerHTML = '';
   addSysLine('새벽 2 시 채팅방에 입장했습니다. 현재 접속자 13 명.');
@@ -322,7 +478,8 @@ function showIntro() {
   addSysLine('=== DAY 1 ===');
   addSysLine(DAY_INTRO[1].sys);
   HELP_LINES.forEach(addSysLine);
-  addSysLine('[오늘 목표]');
+  addSysLine('[오늘의 추리 보드] ' + boardForDay(1).title + ' — 바탕화면 "추리 보드"에서 채우세요.');
+  addSysLine('[권장 조사]');
   goalLines(1).forEach(addSysLine);
 }
 
@@ -349,18 +506,25 @@ function advanceDay() {
     addSysLine('마지막 날입니다. 충분히 조사했다면 바탕화면의 "최종 추리"로 가세요.');
     return;
   }
-  const unmet = (DAY_GOALS[state.day] || []).filter((g) => !g.check(state));
-  if (unmet.length) {
-    addSysLine('아직 오늘 할 일이 남았습니다:');
-    unmet.forEach((g) => addSysLine('○ ' + g.label));
-    addSysLine('("목표"라고 입력하면 언제든 다시 볼 수 있습니다)');
+  const board = boardForDay(state.day);
+  if (board && !boardSolved(board.id)) {
+    const bs = boardState(board.id);
+    const lockedN = board.slots.filter((_, i) => bs.locked[i]).length;
+    addSysLine('오늘의 추리 보드를 먼저 완성하세요: ' + board.title + ' (' + lockedN + '/' + board.slots.length + ' 칸 확정)');
+    const unmet = (DAY_GOALS[state.day] || []).filter((g) => !g.check(state));
+    if (unmet.length) {
+      addSysLine('[권장 조사 — 아직 안 한 것]');
+      unmet.forEach((g) => addSysLine('○ ' + g.label));
+    }
     return;
   }
   state.day++;
   const intro = DAY_INTRO[state.day];
   const entries = [{ type: 'sys', text: '=== DAY ' + state.day + ' ===' }, { type: 'sys', text: intro.sys }];
   (intro.lines || []).forEach((l) => entries.push({ type: 'npc', text: l.text, speaker: l.speaker }));
-  entries.push({ type: 'sys', text: '[오늘 목표]' });
+  const nb = boardForDay(state.day);
+  if (nb) entries.push({ type: 'sys', text: '[오늘의 추리 보드] ' + nb.title + ' — 바탕화면 "추리 보드"에서 채우세요.' });
+  entries.push({ type: 'sys', text: '[권장 조사]' });
   goalLines(state.day).forEach((t) => entries.push({ type: 'sys', text: t }));
   state.threads.group.history.push(...entries);
   switchView('group');
@@ -536,7 +700,12 @@ function handleSend() {
     return;
   }
   if (text === '목표') {
-    addSysLine('[DAY ' + state.day + ' 목표]');
+    const b = boardForDay(state.day);
+    if (b) {
+      const bs = boardState(b.id);
+      addSysLine('[오늘의 추리 보드] ' + b.title + ' — ' + (bs.solved ? '완성 ✔' : b.slots.filter((_, i) => bs.locked[i]).length + '/' + b.slots.length + ' 칸 확정'));
+    }
+    addSysLine('[DAY ' + state.day + ' 권장 조사]');
     goalLines(state.day).forEach(addSysLine);
     return;
   }
@@ -801,7 +970,7 @@ function renderNotebook() {
     const goalsHead = document.createElement('div');
     goalsHead.className = 'clue-title';
     goalsHead.style.marginTop = '8px';
-    goalsHead.textContent = 'DAY ' + state.day + ' 목표';
+    goalsHead.textContent = 'DAY ' + state.day + ' 권장 조사';
     list.appendChild(goalsHead);
     goalLines(state.day).forEach((t) => {
       const row = document.createElement('div');
@@ -858,85 +1027,26 @@ function renderNotebook() {
 function renderAccuse() {
   const body = document.getElementById('accuse-body');
   body.innerHTML = '';
-
+  const final = BOARDS.find((b) => b.final);
   const info = document.createElement('div');
-  info.style.marginBottom = '10px';
-  info.style.color = '#555';
-  info.textContent = '지금까지의 조사 내용을 바탕으로 답해주세요. (DAY ' + state.day + ' · 단서 ' + state.unlocked.length + ' 개)';
+  info.className = 'board-intro';
+  info.textContent = '지금까지의 조사로 마지막 로그를 완성하세요. (DAY ' + state.day + ' · 단서 ' + state.unlocked.length + ' 개)';
   body.appendChild(info);
-
-  const selections = new Array(FINAL_QUESTIONS.length).fill(-1);
-
-  FINAL_QUESTIONS.forEach((q, qi) => {
-    const group = document.createElement('div');
-    group.className = 'qgroup';
-    const title = document.createElement('div');
-    title.className = 'qgroup-title';
-    title.textContent = q.q;
-    group.appendChild(title);
-
-    q.options.forEach((opt, oi) => {
-      const label = document.createElement('label');
-      label.className = 'qoption';
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'q' + qi;
-      radio.addEventListener('change', () => {
-        selections[qi] = oi;
-      });
-      label.appendChild(radio);
-      label.appendChild(document.createTextNode(opt));
-      group.appendChild(label);
-    });
-
-    body.appendChild(group);
-  });
-
-  const submitBtn = document.createElement('div');
-  submitBtn.className = 'toolbtn accuse-submit';
-  submitBtn.style.width = '120px';
-  submitBtn.style.fontWeight = '700';
-  submitBtn.textContent = '추리 제출하기';
-  body.appendChild(submitBtn);
-
+  const box = document.createElement('div');
+  body.appendChild(box);
   const resultBox = document.createElement('div');
   resultBox.id = 'accuse-result';
   body.appendChild(resultBox);
 
-  submitBtn.addEventListener('click', () => {
-    if (selections.some((s) => s === -1)) {
-      resultBox.className = 'accuse-result';
-      resultBox.textContent = '5 가지 질문에 모두 답해주세요.';
-      return;
-    }
-    const score = selections.filter((s, i) => s === FINAL_QUESTIONS[i].correct).length;
-    const trueEnd = score === 5 && has('ev_demian_post');
+  const showResult = () => {
     const fs = fakeStats();
+    const trueEnd = has('ev_demian_post');
     const perfect = trueEnd && fs.found.length >= 5 && fs.refuted.length === fs.found.length;
     let verdict;
     if (perfect) verdict = '★★ PERFECT — 진실에 도달했고, 찾아낸 가짜 기록을 하나도 남기지 않고 전부 반박했습니다.';
     else if (trueEnd) verdict = '★ TRUE END — 데미안이 남긴 마지막 로그까지 전부 읽어 냈습니다.';
-    else if (score === 5) verdict = '완벽한 추리입니다. 하지만 데미안의 예약 게시물은 아직 열지 못했습니다.';
-    else if (score >= 3) verdict = '거의 다 왔습니다. 큰 흐름은 맞지만 세부 사항을 놓쳤습니다.';
-    else verdict = '아직 사건의 실체에 닿지 못했습니다.';
-
-    const lines = [verdict + ' (' + score + '/5)', ''];
-    FINAL_QUESTIONS.forEach((q, i) => {
-      const ok = selections[i] === q.correct;
-      lines.push((ok ? '✔ ' : '✘ ') + q.q);
-      if (!ok) {
-        lines.push('   정답: ' + q.options[q.correct]);
-        const bait = FAKE_CLUES.find((f) => f.bait.q === i && f.bait.opt === selections[i]);
-        if (bait && has(bait.id)) {
-          lines.push(
-            isRefuted(bait)
-              ? '   ⚠ 이미 반박된 기록 "' + bait.title + '"에 속았습니다.'
-              : '   ⚠ "' + bait.title + '" 기록에 속았습니다. 이 기록은 사실이 아닙니다 — 관련자에게 제시하면 반박됩니다.'
-          );
-        }
-      }
-      lines.push('   근거: ' + q.why);
-    });
+    else verdict = '보드는 완성했습니다. 하지만 데미안의 예약 게시물은 아직 열지 못했습니다. (DAY 5 그룹채팅)';
+    const lines = [verdict];
     if (fs.found.length) {
       lines.push('', '[가짜 기록] 찾은 ' + fs.found.length + ' 개 중 ' + fs.refuted.length + ' 개 반박');
       fs.found.forEach((d) => lines.push((isRefuted(d) ? '   ✘ ' : '   ○ ') + d.title));
@@ -944,7 +1054,23 @@ function renderAccuse() {
     lines.push('', '[진실]', TRUE_STORY_TEXT);
     resultBox.className = 'accuse-result';
     resultBox.textContent = lines.join('\n');
-  });
+  };
+
+  // 가짜 단서에 속은 칸 경고 (확인을 눌렀을 때만, 어느 칸인지는 말하지 않음)
+  const bs = boardState(final.id);
+  const origCheck = box; // placeholder to keep structure simple
+  renderBoard(box, final, showResult);
+  const btn = box.querySelector('.accuse-submit');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const baited = FAKE_CLUES.filter((f) => f.bait && has(f.id) && !bs.locked[f.bait.slot] && bs.picks[f.bait.slot] === f.bait.opt);
+      const msg = box.querySelector('.board-msg');
+      if (baited.length && msg && !bs.solved) {
+        msg.textContent += ' ⚠ 수첩의 어떤 기록은 사실이 아닐 수 있습니다.';
+      }
+    });
+  }
+  if (bs.solved) showResult();
 }
 
 // ===== 초기화 =====
