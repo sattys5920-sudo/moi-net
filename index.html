@@ -110,7 +110,8 @@
               <span>검색</span>
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
-            <div style="display:flex;gap:6px;padding:10px;">
+            <div class="addrbar"><span class="addr-label">주소</span><div class="sunken addr" id="search-addr">http://search.pc89.net/</div></div>
+            <div style="display:flex;gap:6px;padding:6px 10px 8px;">
               <input id="search-input" class="chatinput" placeholder="검색어를 입력하세요..." autocomplete="off">
               <div class="toolbtn" id="search-go" style="width:34px;cursor:pointer;">
                 <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.4" fill="none" stroke="#333" stroke-width="1.6"/><line x1="9.2" y1="9.2" x2="13" y2="13" stroke="#333" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -165,6 +166,19 @@
                 <li><a href="#">방명록</a></li>
               </ul>
               <p style="margin-top:14px;font-size:10.5px;color:#555;">누적 방문자: 001234</p>
+            </div>
+          </div>
+
+          <div id="view-popup" class="win popup hidden">
+            <div class="titlebar">
+              <span id="popup-title">인터넷 브라우저 — 팝업</span>
+              <div class="tbtns"><div class="tbtn" id="popup-close">✕</div></div>
+            </div>
+            <div class="addrbar"><span class="addr-label">주소</span><div class="sunken addr" id="popup-url"></div></div>
+            <div class="sunken page" id="popup-body"></div>
+            <div class="popup-actions">
+              <div class="toolbtn sendbtn" id="popup-share" style="width:110px;">채팅방에 공유</div>
+              <div class="toolbtn sendbtn" id="popup-close2" style="width:60px;">닫기</div>
             </div>
           </div>
 

@@ -38,6 +38,7 @@ function openScreen(name) {
 
 function closeToDesktop() {
   SCREENS.forEach((s) => document.getElementById('view-' + s).classList.add('hidden'));
+  document.getElementById('view-popup').classList.add('hidden');
   desktopView.classList.remove('hidden');
   taskappArea.innerHTML = '';
 }
@@ -234,7 +235,17 @@ function addSysLine(text) {
 }
 function renderEntry(e) {
   if (e.type === 'sys') addSysLine(e.text);
-  else if (e.type === 'me') {
+  else if (e.type === 'link') {
+    const mine = e.pid === me.pid;
+    addMessage(mine ? 'me' : 'other', '🔗 ' + e.text, e.from, true);
+    const last = chatLog.lastElementChild;
+    const bubble = last && last.querySelector('.bubble-out, .bubble-in');
+    if (bubble) {
+      bubble.classList.add('link-bubble');
+      bubble.title = e.url || '';
+      bubble.addEventListener('click', () => openPopupById(e.clueId));
+    }
+  } else if (e.type === 'me') {
     if (e.pid === me.pid || !e.pid) addMessage('me', e.text);
     else addMessage('other', e.text, e.from, true);
   } else addMessage('other', e.text, e.speaker);
@@ -773,21 +784,9 @@ async function handleSend() {
 
   if (/^검색\s*/.test(text)) {
     const q = text.replace(/^검색\s*/, '');
-    const results = runSearchQuery(q);
-    let reply = SEARCH_DEFAULT;
-    if (results.length) {
-      results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day));
-      reply = results.map((r) => r.title + ' — ' + r.body).join('\n');
-      const rel = Array.from(new Set(results.flatMap((r) => SEARCH_RELATED[r.id] || [])));
-      if (rel.length) reply += '\n연관 검색어: ' + rel.join(', ');
-    }
-    addMessage('me', text);
-    addMessage('other', reply, '검색결과');
-    if (view !== 'group') {
-      state.threads[view].history.push({ type: 'me', text }, { type: 'npc', text: reply, speaker: '검색결과' });
-      saveThreads();
-    }
-    checkGroupEvents();
+    searchInput.value = q;
+    openScreen('search');
+    runSearch();
     return;
   }
   if (text === '힌트') {
@@ -885,39 +884,202 @@ evidenceGo.addEventListener('click', () => {
   evidenceSelect.value = '';
 });
 
-// ===== 검색 앱 =====
+// ===== 검색 앱 (검색엔진 화면) + 페이지 팝업 =====
 const searchInput = document.getElementById('search-input');
 const searchGo = document.getElementById('search-go');
 const searchResults = document.getElementById('search-results');
-function renderSearchResults(results, freshIds) {
+const searchAddr = document.getElementById('search-addr');
+const popupView = document.getElementById('view-popup');
+const popupBody = document.getElementById('popup-body');
+let popupCurrent = null;
+
+function siteName(url) {
+  const m = (url || '').match(/^https?:\/\/([^/]+)/);
+  return m ? m[1] : 'moi.net';
+}
+// 단서 → 페이지 정의 (없으면 날짜/종류로 기본 스킨)
+function pageFor(clue) {
+  if (clue.page) return { ...clue.page, url: clue.page.url || clue.url };
+  const p = PAGES[clue.id];
+  if (p) return p;
+  const d = clue.day || 1;
+  if (clue.fake) return { site: 'cafe', url: 'http://cafe.moi.net/free/' + (190000 + (clue.id.length * 137) % 9000), boardName: '자유게시판', title: clue.title, author: '익명', date: 'D+' + d, views: 120, lines: [clue.body], comments: [['익명', '이거 진짜임?'], ['익명', '출처?']] };
+  if (d === 2) return { site: 'log', url: 'http://moi.net/user/demian/records', title: clue.title, rows: [['기록', clue.body, '']] };
+  if (d >= 5) return { site: 'wiki', url: 'http://moi.net/case/dawn2/' + clue.id, title: clue.title, lines: [clue.body] };
+  if (d === 4) return { site: 'cafe', url: 'http://cafe.moi.net/dawn2/' + clue.id, boardName: '새벽 2 시 — 정리', title: clue.title, author: '포청천', date: 'D+' + d, views: 30, lines: [clue.body], comments: [] };
+  return { site: 'blog', url: 'http://blog.moi.net/case/' + clue.id, blogName: '사건 노트', title: clue.title, date: 'D+' + d, views: 20 + d * 7, lines: [clue.body], comments: [] };
+}
+function pageUrl(clue) {
+  return pageFor(clue).url || 'http://moi.net/' + clue.id;
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function renderPageInto(container, clue) {
+  const p = pageFor(clue);
+  container.innerHTML = '';
+  const pg = el('div', 'pg pg-' + p.site);
+  const addComments = (list, withTime) => {
+    if (!list || !list.length) return;
+    const box = el('div', 'pg-comments');
+    box.appendChild(el('div', '', '댓글 ' + list.length));
+    list.forEach((c) => {
+      const row = el('div', 'pg-comment');
+      const who = el('b', '', c[0]);
+      row.appendChild(who);
+      if (withTime && c.length === 3) row.appendChild(el('span', 't', c[1]));
+      row.appendChild(document.createTextNode(' ' + (c.length === 3 ? c[2] : c[1])));
+      box.appendChild(row);
+    });
+    pg.appendChild(box);
+  };
+  const addLines = (lines) => {
+    const body = el('div', 'pg-body');
+    (lines || []).forEach((l) => body.appendChild(el('p', '', l)));
+    pg.appendChild(body);
+  };
+  if (p.site === 'profile') {
+    pg.appendChild(el('div', 'pg-head', 'moi.net — 프로필'));
+    const card = el('div', 'card');
+    const av = el('div', 'av');
+    av.innerHTML = OTHER_AVATAR_SVG.replace('width="16" height="16"', 'width="34" height="34"');
+    card.appendChild(av);
+    const kv = el('div', 'kv');
+    [['닉네임', p.nick], ['가입일', p.joined], ['마지막 접속', p.lastSeen], ['상태 메시지', p.status], ['게시물', p.posts], ['친구', p.friends]].forEach(([k, v]) => {
+      const line = el('div');
+      line.appendChild(el('b', '', k));
+      line.appendChild(document.createTextNode(String(v)));
+      kv.appendChild(line);
+    });
+    card.appendChild(kv);
+    pg.appendChild(card);
+    addLines(p.lines);
+  } else if (p.site === 'blog') {
+    pg.appendChild(el('div', 'pg-head', p.blogName || '블로그'));
+    pg.appendChild(el('div', 'pg-title', p.title || clue.title));
+    pg.appendChild(el('div', 'pg-meta', (p.date || '') + ' · 조회 ' + (p.views != null ? p.views : '-')));
+    addLines(p.lines);
+    addComments(p.comments, false);
+  } else if (p.site === 'cafe') {
+    pg.appendChild(el('div', 'pg-head', '커뮤니티 › ' + (p.boardName || '자유게시판')));
+    pg.appendChild(el('div', 'pg-title', p.title || clue.title));
+    pg.appendChild(el('div', 'pg-meta', (p.author || '익명') + ' · ' + (p.date || '') + ' · 조회 ' + (p.views != null ? p.views : '-')));
+    addLines(p.lines);
+    addComments(p.comments, true);
+  } else if (p.site === 'wiki') {
+    pg.appendChild(el('div', 'pg-head', siteName(p.url)));
+    pg.appendChild(el('div', 'pg-title', p.title || clue.title));
+    addLines(p.lines);
+  } else if (p.site === 'news') {
+    pg.appendChild(el('div', 'pg-head', p.org || '기록'));
+    pg.appendChild(el('div', 'pg-title', p.title || clue.title));
+    addLines(p.lines);
+  } else if (p.site === 'log') {
+    pg.appendChild(el('div', 'pg-head', p.title || clue.title));
+    const t = el('table');
+    const hd = el('tr');
+    ['시각', '이벤트', '비고'].forEach((h) => hd.appendChild(el('th', '', h)));
+    t.appendChild(hd);
+    (p.rows || []).forEach((r) => {
+      const tr = el('tr', /^\d\d:\d\d$/.test(r[0]) || /D/.test(r[0]) ? '' : '');
+      r.forEach((c) => tr.appendChild(el('td', '', c)));
+      t.appendChild(tr);
+    });
+    const wrap = el('div', 'pg-body');
+    wrap.appendChild(t);
+    pg.appendChild(wrap);
+  } else if (p.site === 'chat') {
+    pg.appendChild(el('div', 'pg-head', p.title || clue.title));
+    const box = el('div', 'pg-chat');
+    (p.bubbles || []).forEach(([who, tm, text]) => {
+      const cb = el('div', 'cb' + (who === '데미안' ? ' r' : ''));
+      cb.appendChild(el('div', 'who', who));
+      cb.appendChild(el('div', 'bb' + (/열람 제한/.test(text) ? ' restricted' : ''), text));
+      cb.appendChild(el('div', 'tm', tm));
+      box.appendChild(cb);
+    });
+    pg.appendChild(box);
+  } else if (p.site === 'photo') {
+    pg.appendChild(el('div', 'pg-head', '커뮤니티 › 사진'));
+    pg.appendChild(el('div', 'pg-title', p.title || clue.title));
+    const frame = el('div', 'frame');
+    const img = el('div', 'img');
+    img.appendChild(el('div', 'grain'));
+    frame.appendChild(img);
+    frame.appendChild(el('div', 'cap', p.caption || clue.body));
+    pg.appendChild(frame);
+    if (p.exif) {
+      const ex = el('div', 'exif');
+      ex.appendChild(el('div', '', '[EXIF]'));
+      Object.entries(p.exif).forEach(([k, v]) => ex.appendChild(el('div', '', k + ': ' + v)));
+      pg.appendChild(ex);
+    }
+    addComments(p.comments, false);
+  } else {
+    addLines([clue.body]);
+  }
+  container.appendChild(pg);
+}
+function openPopup(clue) {
+  popupCurrent = clue;
+  document.getElementById('popup-title').textContent = siteName(pageUrl(clue)) + ' — ' + clue.title;
+  document.getElementById('popup-url').textContent = pageUrl(clue);
+  renderPageInto(popupBody, clue);
+  popupBody.scrollTop = 0;
+  popupView.classList.remove('hidden');
+  if (!clue.noise) {
+    if (unlockClue(clue.id, clue.title, clue.body, clue.day)) checkGroupEvents();
+  }
+}
+function openPopupById(id) {
+  const c = SEARCH_CLUES.find((x) => x.id === id) || NOISE_RESULTS.find((x) => x.id === id);
+  if (c) openPopup(c);
+}
+function closePopup() {
+  popupView.classList.add('hidden');
+  popupCurrent = null;
+}
+document.getElementById('popup-close').addEventListener('click', closePopup);
+document.getElementById('popup-close2').addEventListener('click', closePopup);
+document.getElementById('popup-share').addEventListener('click', () => {
+  if (!popupCurrent) return;
+  postChat({ type: 'link', from: me.name, pid: me.pid, clueId: popupCurrent.id, text: popupCurrent.title, url: pageUrl(popupCurrent) });
+  closePopup();
+  openScreen('chat');
+  switchView('group');
+});
+
+function renderSearchResults(q, results) {
   searchResults.innerHTML = '';
-  if (!results.length) {
-    const empty = document.createElement('div');
-    empty.className = 'clue-empty';
-    empty.textContent = SEARCH_DEFAULT;
-    searchResults.appendChild(empty);
+  searchAddr.textContent = 'http://search.pc89.net/?q=' + encodeURIComponent(q);
+  const noise = NOISE_RESULTS.filter((n) => keywordScore(['링크', '채팅방', '공지', '실종', '친구', '방'], q) > 0 || Math.random() < 0.4).slice(0, 2);
+  const all = results.map((r) => ({ clue: r, noise: false })).concat(noise.map((n) => ({ clue: { ...n, noise: true }, noise: true })));
+  searchResults.appendChild(el('div', 'result-count', '"' + q + '" 검색 결과 ' + all.length + ' 건'));
+  if (!all.length) {
+    searchResults.appendChild(el('div', 'clue-empty', SEARCH_DEFAULT));
     return;
   }
-  results.forEach((r) => {
-    const card = document.createElement('div');
-    card.className = 'clue-card';
-    const title = document.createElement('div');
-    title.className = 'clue-title';
-    title.textContent = r.title + (freshIds.includes(r.id) ? '  [NEW]' : '');
-    const body = document.createElement('div');
-    body.className = 'clue-body';
-    body.textContent = r.body;
-    card.appendChild(title);
-    card.appendChild(body);
-    const rel = SEARCH_RELATED[r.id];
+  all.forEach(({ clue, noise: isNoise }) => {
+    const box = el('div', 'result');
+    const title = el('div', 'result-title' + (has(clue.id) ? ' visited' : ''), clue.title);
+    if (!isNoise && !has(clue.id)) title.appendChild(el('span', 'result-new', 'NEW'));
+    title.addEventListener('click', () => {
+      openPopup(clue);
+      title.classList.add('visited');
+      title.querySelector('.result-new') && title.querySelector('.result-new').remove();
+    });
+    box.appendChild(title);
+    box.appendChild(el('div', 'result-url', pageUrl(clue)));
+    box.appendChild(el('div', 'result-snip', clue.body.length > 70 ? clue.body.slice(0, 70) + '…' : clue.body));
+    const rel = SEARCH_RELATED[clue.id];
     if (rel && rel.length) {
-      const relEl = document.createElement('div');
-      relEl.className = 'clue-related';
-      relEl.textContent = '연관 검색어: ';
+      const relEl = el('div', 'clue-related', '연관 검색어: ');
       rel.forEach((k, i) => {
-        const a = document.createElement('a');
+        const a = el('a', '', k);
         a.href = '#';
-        a.textContent = k;
         a.addEventListener('click', (ev) => {
           ev.preventDefault();
           searchInput.value = k;
@@ -926,19 +1088,15 @@ function renderSearchResults(results, freshIds) {
         relEl.appendChild(a);
         if (i < rel.length - 1) relEl.appendChild(document.createTextNode(', '));
       });
-      card.appendChild(relEl);
+      box.appendChild(relEl);
     }
-    searchResults.appendChild(card);
+    searchResults.appendChild(box);
   });
 }
 function runSearch() {
   const q = searchInput.value.trim();
   if (!q) return;
-  const results = runSearchQuery(q);
-  const fresh = [];
-  results.forEach((r) => unlockClue(r.id, r.title, r.body, r.day) && fresh.push(r.id));
-  renderSearchResults(results, fresh);
-  checkGroupEvents();
+  renderSearchResults(q, runSearchQuery(q));
 }
 searchGo.addEventListener('click', runSearch);
 searchInput.addEventListener('keydown', (e) => e.key === 'Enter' && runSearch());
@@ -1000,6 +1158,14 @@ function renderNotebook() {
       const by = document.createElement('div');
       by.className = 'clue-by';
       by.textContent = '— ' + (c.by || '?');
+      const def0 = clueDef(c.id);
+      if (def0) {
+        const open = document.createElement('span');
+        open.className = 'clue-open';
+        open.textContent = '페이지 열기';
+        open.addEventListener('click', () => openPopup(def0));
+        by.appendChild(open);
+      }
       card.appendChild(title);
       card.appendChild(body);
       card.appendChild(by);

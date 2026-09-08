@@ -1720,3 +1720,42 @@ const FAKE_BAIT = {
   fake_08: { slot: 0, opt: '가출했다' },
 };
 FAKE_CLUES.forEach((f) => { f.bait = FAKE_BAIT[f.id]; });
+
+// ===== 검색 결과 "페이지" (팝업으로 열리는 가짜 웹페이지) =====
+// site: profile | blog | cafe | log | chat | photo | news | wiki
+// 여기 없는 검색 단서는 pageFor()가 날짜/종류에 맞춰 기본 스킨을 만든다.
+const PAGES = {
+  search_d1_01: { site: 'profile', url: 'http://moi.net/user/demian', nick: '데미안', joined: '2012.03.14', lastSeen: '18 시간 전', status: '내일 봐.', posts: 312, friends: 6, lines: ['조용히 보는 편. 검색 좋아함. 사람들 말 잘 기억함.'] },
+  search_d1_02: { site: 'wiki', url: 'http://moi.net/room/dawn2', title: '새벽 2 시 (채팅방)', lines: ['moi.net의 비공개 단체채팅방. 매일 자정을 넘긴 시간에 활동한다.', '개설: 3 년 전 (4 명으로 시작). 현재 접속자 13 명, 발언자 7 명.', '초대 링크로만 입장할 수 있다.'] },
+  search_d1_04: { site: 'wiki', url: 'http://moi.net/room/dawn2/members', title: '새벽 2 시 — 멤버', lines: ['데미안 · 고니 · 계룡맛 · 오이오이 · wkwkdfoq · 호호19 · 포청천', '그 외 접속자 6 명 (발언 기록 없음)'] },
+  search_d1_06: { site: 'log', url: 'http://moi.net/user/demian/activity', title: '데미안 — 활동 기록 (최근)', rows: [['22:31', '그룹채팅 "새벽 2 시"', '"내일 봐"'], ['22:31', '로그아웃', ''], ['—', '이후 기록 없음', '(18 시간 경과)']] },
+  search_d1_07: { site: 'chat', url: 'http://moi.net/room/dawn2/log?date=D-1', title: '새벽 2 시 — 그날 밤 채팅 기록', bubbles: [['wkwkdfoq', '22:19', '내일 다들 들어와?'], ['계룡맛', '22:24', 'ㅇㅇ 나 알바 끝나고'], ['데미안', '22:31', '내일 봐'], ['고니', '22:40', '...'], ['호호19', '22:43', '나 왔음']] },
+  search_d1_10: { site: 'blog', url: 'http://blog.moi.net/demian/old', blogName: '데미안의 기록', title: '(옛 글) 사람들이 하는 말', date: '2 년 전', views: 41, lines: ['사람들은 자기가 한 말을 잘 잊는다. 나는 적어 둔다.', '언젠가 이게 쓸모 있을 거라고 생각했다.'], comments: [['wkwkdfoq', '오 블로그 있었네ㅋㅋ'], ['익명', '...']] },
+  search_d2_01: { site: 'log', url: 'http://moi.net/user/demian/sessions', title: '데미안 — 세션 기록', rows: [['22:31', '로그아웃', '그룹채팅'], ['23:18', '로그인', '위치 정보 없음'], ['23:21', '게시물 열람 기록 조회', ''], ['00:03', '게시물 작성', '"잘 지내."'], ['00:04', '로그아웃', '']] },
+  search_d2_03: { site: 'wiki', url: 'http://help.moi.net/faq/login', title: '도움말 — 접속 위치 정보', lines: ['moi.net은 접속 위치(IP) 정보를 저장하지 않습니다.', '세션 기록에는 시각과 행동만 남습니다.'] },
+  search_d2_05: { site: 'log', url: 'http://moi.net/user/demian/posts', title: '데미안 — 게시물 기록', rows: [['D-1 21:02', '게시물 #4471 작성', '열람 3'], ['D-1 22:58', '게시물 #4471 열람 급증', '열람 3 → 27'], ['D-1 23:07', '게시물 #4471 삭제', ''], ['D 00:03', '게시물 #4472 작성', '"잘 지내."']] },
+  search_d2_06: { site: 'log', url: 'http://moi.net/post/4471', title: '게시물 #4471 (삭제됨)', rows: [['상태', '삭제됨 (23:07)', ''], ['원본', '열람 불가', ''], ['삭제 직전 열람', '27 회', '9 분 사이 24 회 증가']] },
+  search_d2_07: { site: 'blog', url: 'http://moi.net/post/4472', blogName: '데미안', title: '(제목 없음)', date: 'D 00:03', views: 58, lines: ['잘 지내.'], comments: [['wkwkdfoq', '데미안!!! 어디야'], ['계룡맛', '답장 좀'], ['고니', '...']] },
+  search_d3_05: { site: 'log', url: 'http://blog.moi.net/demian/old/visitors', title: '옛 블로그 — 방문자 기록', rows: [['D-3 14:10', '방문', '검색 유입'], ['D-1 22:51', '방문', '직접 접속'], ['D-1 23:40', '방문', '외부 링크 유입'], ['D 01:30', '방문', '외부 링크 유입']] },
+  search_d3_07: { site: 'blog', url: 'http://blog.moi.net/demian/old/2', blogName: '데미안의 기록', title: '(옛 글) 축제 다녀옴', date: '2 년 전', views: 77, lines: ['학교 축제. 사진은 안 올림.'], comments: [['친구A', 'ㅋㅋ 우리 학교 축제 올해 별로였음'], ['데미안', '내년엔 나아지겠지'], ['wkwkdfoq', '(1 년 전) 어느 학교인지 알겠다']] },
+  search_d4_01: { site: 'cafe', url: 'http://cafe.moi.net/free/198822', boardName: '자유게시판', title: '오늘 뭐 먹지', author: '익명', date: 'D-1 23:40', views: 12, lines: ['배고픈데 뭐 먹지'], comments: [['호호19', 'D-1 23:52', '라면'], ['익명', 'D-1 23:55', 'ㅋㅋ']] },
+  search_d4_02: { site: 'chat', url: 'http://moi.net/dm/demian-blackcat', title: '개인 메시지 — 데미안 → 포청천', bubbles: [['데미안', '01:12', '내가 내일 접속하지 않으면 그 사람을 찾아'], ['데미안', '01:12', '(한 줄 더 — 열람 제한)'], ['포청천', '01:31', '...뭐?']] },
+  search_d5_02: { site: 'wiki', url: 'http://moi.net/room/dawn2/history', title: '새벽 2 시 — 초대 링크 이력', lines: ['3 년 전: 오이오이가 초대 링크 생성', '2 년 전: 링크로 5 명 입장', '지난달: 링크 접속 급증 (외부 게시판 유입 추정)', '현재: 링크 활성 상태'] },
+  search_d5_09: { site: 'cafe', url: 'http://linkshare.kr/rooms/1029', boardName: '채팅방 초대 링크 모음', title: '[moi.net] 새벽에 하는 방 (링크)', author: '익명', date: '지난달', views: 1180, lines: ['새벽에 사람 있는 방. 눈팅해도 됨.', 'http://moi.net/invite/•••••'], comments: [['익명', '들어가서 봤는데 재밌음'], ['익명', '로그 긁어 놓음ㅋ']] },
+  // 가짜 단서
+  fake_01: { site: 'photo', url: 'http://cafe.moi.net/free/199104', title: '역 근처에서 찍은 건데', caption: '흰색 승합차, 사람 한 명. 흔들려서 잘 안 보임.', exif: { 촬영: 'D-1 23:4?', 기기: 'SPH-M4xx', 위치: '(없음)' }, comments: [['익명', '이거 어디 역임?'], ['작성자', '우리 동네 ○○역'], ['익명', '새벽 2 시 방 그 사람 아님?'], ['익명', '지어내지 마라']] },
+  fake_02: { site: 'log', url: 'http://moi.net/user/demian/login-attempts', title: '데미안 — 로그인 시도 기록', rows: [['D-1 23:20', '로그인 실패', '기기: 고니의 기기'], ['D-1 23:18', '로그인 성공', '기기: 데미안의 기기']] },
+  fake_03: { site: 'cafe', url: 'http://cafe.moi.net/report/771', boardName: '사기 피해 신고', title: '중고거래 사기 계좌 공유합니다', author: '계룡맛', date: 'D+3', views: 204, lines: ['이 계좌번호 조심하세요. 000-12-3456 (은행명 삭제)', '저는 안 당했는데 아는 사람 계좌번호가 그대로 올라와 있어서 신고합니다.'], comments: [['익명', '작성자 닉네임이랑 계좌 같이 뜨네'], ['계룡맛', '아니 내가 신고한 거라고요']] },
+  fake_04: { site: 'cafe', url: 'http://cafe.moi.net/free/199230', boardName: '자유게시판', title: '유출 계정 목록에 moi.net 아이디 잔뜩 있음', author: '익명', date: 'D+1', views: 890, lines: ['어제 돌아다닌 유출 목록에 moi.net 아이디 있다더라. demian도 있다는 얘기 들음.', '출처는 모름.'], comments: [['익명', '출처 없으면 소문'], ['포청천', '목록 확인함. 없음.']] },
+  fake_05: { site: 'blog', url: 'http://blog.moi.net/detective_k/32', blogName: '추리하는 K', title: '[분석] 새벽 2 시 실종 사건 — 접속 지역이 말해 주는 것', date: 'D+3', views: 1520, lines: ['호호19의 23:52 댓글과 데미안 계정 23:18 재접속의 접속 지역이 일치한다.', '즉 호호19가 데미안 계정을 썼을 가능성이 높다.', '(접속 지역 데이터 출처: 비공개)'], comments: [['익명', '접속 지역이 어디서 나옴?'], ['detective_k', '비공개'], ['익명', 'moi.net 위치 저장 안 하는데']] },
+  fake_06: { site: 'chat', url: 'http://moi.net/room/surprise', title: '비공개 채팅방 "ㅅㅍㄹㅇㅈ" (D-1 생성)', bubbles: [['wkwkdfoq', 'D-1 20:11', '다들 데미안한테 말하지 마!!'], ['계룡맛', 'D-1 20:12', 'ㅇㅋ'], ['호호19', 'D-1 20:15', '뭐 준비하면 됨?'], ['wkwkdfoq', 'D-1 20:15', '케이크는 내가']] },
+  fake_07: { site: 'news', url: 'http://local-news.kr/119/20xx', org: '○○소방서 출동 기록', title: '하천 구조 요청 (D 02:10)', lines: ['D 02:10 "사람이 빠진 것 같다"는 신고 접수.', '02:31 현장 도착. 발견된 사람 없음. 신고자 연락 두절.', '오인 신고로 종결.'] },
+  fake_08: { site: 'cafe', url: 'http://cafe.moi.net/house/5521', boardName: '자취방 구해요', title: '타 지역 원룸 문의', author: 'demian', date: 'D-14', views: 33, lines: ['다음 달 이사 예정. 역 근처 원룸 시세 어느 정도인가요.'], comments: [['익명', '어느 역이요?'], ['demian', '(삭제된 댓글)']] },
+};
+
+// 검색할 때 섞여 나오는 잡음 결과 (누르면 페이지가 열리지만 단서는 아님)
+const NOISE_RESULTS = [
+  { id: 'noise_01', title: '[광고] 무료 채팅방 초대 링크 모음 — 새벽에도 사람 많은 방', url: 'http://linkshare.kr/rooms', body: '눈팅 환영. 초대 링크 클릭 한 번으로 입장.', page: { site: 'cafe', boardName: '채팅방 초대 링크 모음', title: '무료 채팅방 초대 링크 모음', author: '운영자', date: '매일 갱신', views: 40233, lines: ['새벽에 하는 방 / 게임 방 / 잡담 방', '링크는 본문 참조'], comments: [['익명', '여기서 들어간 방 로그 다 긁힘 조심'], ['운영자', '근거 없는 댓글은 삭제됩니다']] } },
+  { id: 'noise_02', title: 'moi.net 공지 — 서비스 점검 안내', url: 'http://moi.net/notice/88', body: '매주 화요일 04:00~05:00 점검.', page: { site: 'wiki', title: 'moi.net 공지', lines: ['매주 화요일 04:00~05:00 서비스 점검이 있습니다.', '점검 중 채팅 기록은 보존됩니다.'] } },
+  { id: 'noise_03', title: '실종된 친구 찾는 법 (경험담)', url: 'http://blog.moi.net/hana/17', body: '연락 안 되는 친구, 어디까지 찾아봐야 할까.', page: { site: 'blog', blogName: '하나의 일기', title: '실종된 친구 찾는 법 (경험담)', date: '작년', views: 9021, lines: ['먼저 마지막 접속 기록을 확인하세요.', '그다음 그 사람이 누구와 만나기로 했는지.', '대부분은 살아서 돌아옵니다.'], comments: [['익명', '도움 됐어요']] } },
+];
