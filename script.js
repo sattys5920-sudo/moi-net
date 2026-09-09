@@ -86,11 +86,12 @@ const DAY_HINTS = {
   1: '6 명을 나눠 맡아 "데미안"에 대해 물어보고, 검색 앱에서 "데미안"을 검색해 보세요. 알아낸 건 방 전체 수첩에 모입니다.',
   2: '검색에서 "재접속", "23:18", "23:07", "00:03"을 찾아 관련자에게 증거로 제시해 보세요. 검색 결과가 전부 사실은 아닙니다.',
   3: '"미끼 정보"를 검색한 뒤 6 명 각각에게 제시해 보세요. 사람마다 들은 이야기가 다릅니다.',
-  4: '"23:52"와 "01:12" 기록을 찾아 호호19와 포청천에게 제시하세요. 한 사람의 고백이 다른 사람의 입을 엽니다.',
-  5: '포청천에게 01:12 기록을 다시 제시하고 "정보 유출 구조"를 검색해 보세요. 조건이 갖춰지면 그룹채팅에 무언가 올라옵니다.',
+  4: '"저수지", "마지막 통화", "메모"를 검색하세요. 포청천은 이제 답하지 않습니다. 그가 남긴 것을 읽으세요. "23:52"는 호호19에게.',
+  5: '"정보 유출 구조"와 "다음 표적"을 검색해 보세요. 예약 게시물이 올라오면 그 직후 그룹채팅을 지켜보세요.',
 };
 const HELP_LINES = [
-  '명령어: 닉네임 입력 → 1:1 취조 | 그룹채팅 | 검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 방 정보 | 오늘은 여기까지(방장)',
+  '명령어: 닉네임 입력 → 1:1 취조 | 새벽 2 시(그룹채팅) | 수사실 | 검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 방 정보 | 오늘은 여기까지(방장)',
+  '"새벽 2 시"는 NPC가 듣는 방입니다. "수사실"은 플레이어끼리만 쓰는 방입니다 — 누구를 의심하는지는 수사실에서.',
   '1:1 취조에서 알아낸 건 방 전체 수첩에 바로 공유됩니다. 아래 "증거 제시" 메뉴로 수첩의 단서를 상대에게 보여 줄 수 있습니다.',
   '바탕화면의 "추리 보드"는 방 전체가 함께 채웁니다. 오늘 보드를 다 잠그면 방장이 다음 날로 넘길 수 있습니다.',
 ];
@@ -113,7 +114,11 @@ function saveJSON(key, val, storage) {
 const me = { pid: loadJSON('lastlog-pid', null, sessionStorage) || 'p' + Math.random().toString(36).slice(2, 10), name: loadJSON('lastlog-name', '') };
 saveJSON('lastlog-pid', me.pid, sessionStorage);
 
-const room = { code: null, meta: null, players: {}, unlocked: {}, boards: {}, events: {}, presented: {}, chat: {}, reacted: {} };
+const room = { code: null, meta: null, players: {}, unlocked: {}, boards: {}, events: {}, presented: {}, chat: {}, private: {}, reacted: {}, leak: null, verdict: null };
+// 채팅 방 두 개: 'group' = 새벽 2 시(NPC가 듣는다) / 'private' = 수사실(플레이어만)
+const ROOM_VIEWS = ['group', 'private'];
+function isRoomView(v) { return ROOM_VIEWS.includes(v); }
+function npcGone(npc) { return npc === '포청천' && state.day >= 4; }
 const unsubs = [];
 
 // 기존 로직이 쓰던 형태의 로컬 미러 (공유 데이터 + 나만의 취조 기록)
@@ -253,19 +258,25 @@ function renderEntry(e) {
 
 // ----- 그룹채팅(공유) -----
 let renderedChatKeys = new Set();
-function chatEntries() {
-  return Object.keys(room.chat || {})
+function chatEntries(view) {
+  const src = (view === 'private' ? room.private : room.chat) || {};
+  return Object.keys(src)
     .sort()
-    .map((k) => ({ key: k, ...room.chat[k] }));
+    .map((k) => ({ key: k, ...src[k] }));
 }
+const ROOM_HEADERS = {
+  group: (code) => '[새벽 2 시 — 방 코드 ' + code + ' · NPC가 듣는 방. 여기서 한 말은 새어 나갈 수 있다]',
+  private: () => '[수사실 — 플레이어 전용. NPC는 이 방을 볼 수 없다. 누구를 의심하는지는 여기서]',
+};
 function renderGroupChat(full) {
-  if (state.currentView !== 'group') return;
+  const view = state.currentView;
+  if (!isRoomView(view)) return;
   if (full) {
     chatLog.innerHTML = '';
     renderedChatKeys = new Set();
-    addSysLine('[새벽 2 시 그룹채팅방 · 방 코드 ' + room.code + ']');
+    addSysLine(ROOM_HEADERS[view](room.code));
   }
-  chatEntries().forEach((e) => {
+  chatEntries(view).forEach((e) => {
     if (renderedChatKeys.has(e.key)) return;
     renderedChatKeys.add(e.key);
     renderEntry(e);
@@ -273,6 +284,12 @@ function renderGroupChat(full) {
 }
 async function postChat(entry) {
   return Store.push(rp('chat'), { t: Date.now(), ...entry });
+}
+async function postPrivate(entry) {
+  return Store.push(rp('private'), { t: Date.now(), ...entry });
+}
+function postToView(view, entry) {
+  return view === 'private' ? postPrivate(entry) : postChat(entry);
 }
 function postSys(text) {
   return postChat({ type: 'sys', text });
@@ -292,15 +309,17 @@ function pushLocal(view, entries) {
 
 function renderRoster() {
   rosterEl.innerHTML = '';
-  const groupBtn = document.createElement('div');
-  groupBtn.className = 'roster-btn' + (state.currentView === 'group' ? ' active' : '');
-  groupBtn.textContent = '그룹채팅';
-  groupBtn.addEventListener('click', () => switchView('group'));
-  rosterEl.appendChild(groupBtn);
+  [['group', '새벽 2 시'], ['private', '수사실']].forEach(([v, label]) => {
+    const btn = document.createElement('div');
+    btn.className = 'roster-btn roster-room' + (state.currentView === v ? ' active' : '') + (v === 'private' ? ' roster-private' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', () => switchView(v));
+    rosterEl.appendChild(btn);
+  });
   ROSTER.forEach((name) => {
     const btn = document.createElement('div');
-    btn.className = 'roster-btn' + (state.currentView === name ? ' active' : '');
-    btn.textContent = name;
+    btn.className = 'roster-btn' + (state.currentView === name ? ' active' : '') + (npcGone(name) ? ' roster-gone' : '');
+    btn.textContent = npcGone(name) ? name + ' ✝' : name;
     btn.addEventListener('click', () => switchView(name));
     rosterEl.appendChild(btn);
   });
@@ -308,7 +327,7 @@ function renderRoster() {
   roomTag.textContent = room.code ? '[' + room.code + ' · ' + onlinePlayers().length + ' 명]' : '';
 }
 function renderEvidenceRow() {
-  if (state.currentView === 'group') {
+  if (isRoomView(state.currentView) || npcGone(state.currentView)) {
     evidenceRow.classList.add('hidden');
     return;
   }
@@ -332,11 +351,12 @@ function switchView(view) {
   renderRoster();
   renderEvidenceRow();
   chatLog.innerHTML = '';
-  if (view === 'group') {
+  if (isRoomView(view)) {
     renderGroupChat(true);
-    checkGroupEvents();
+    if (view === 'group') checkGroupEvents();
   } else {
-    addSysLine('[' + view + ' 취조 중... 방 전체 신뢰도 ' + trustFor(view) + ']');
+    if (npcGone(view)) addSysLine('[' + view + ' — 접속 불가. DAY 3 밤 이후 기록이 없다. 남긴 것은 검색(메모)으로]');
+    else addSysLine('[' + view + ' 취조 중... 방 전체 신뢰도 ' + trustFor(view) + ']');
     state.threads[view].history.forEach(renderEntry);
   }
 }
@@ -379,8 +399,20 @@ function unlockClue(id, title, body, day, opts) {
 }
 
 // ===== 그룹 이벤트 / 반응 (한 클라이언트만 발동하도록 setIfAbsent로 잠금) =====
+// 새벽 2 시 방에서 새어 나간 말 (헨델이 인용한다)
+const LEAK_DEFAULT = '"데미안이 범인 아니야?" — 누가 그랬더라.';
+function leakText() {
+  return room.leak && room.leak.text ? '"' + room.leak.text + '" — ' + (room.leak.from || '?') + ' 님이 그랬지.' : LEAK_DEFAULT;
+}
+function fillLeak(text) {
+  return String(text).replace(/\{LEAK\}/g, () => (room.leak && room.leak.text ? room.leak.text : LEAK_DEFAULT));
+}
+// DAY 4부터 포청천은 없다 — 그룹채팅 대사에서 뺀다
+function aliveLines(lines) {
+  return lines.filter((l) => !(l.speaker && npcGone(l.speaker)));
+}
 function eventLines(ev) {
-  return ev.lines.map(([who, text]) => (who === 'sys' ? { type: 'sys', text } : { type: 'npc', text, speaker: who }));
+  return aliveLines(ev.lines.map(([who, text]) => (who === 'sys' ? { type: 'sys', text: fillLeak(text) } : { type: 'npc', text: who === HANDEL && text === '{LEAK}' ? leakText() : fillLeak(text), speaker: who })));
 }
 function checkGroupEvents() {
   if (!room.code) return;
@@ -391,10 +423,10 @@ function checkGroupEvents() {
     Store.setIfAbsent(rp('events/' + ev.id), true).then((ok) => {
       if (!ok) return;
       const lines = eventLines(ev);
-      if (ev.unlock && unlockClue(ev.unlock.id, ev.unlock.title, ev.unlock.body, state.day, { silent: true })) {
+      if (ev.unlock && unlockClue(ev.unlock.id, ev.unlock.title, fillLeak(ev.unlock.body), state.day, { silent: true })) {
         lines.push({ type: 'sys', text: '📎 단서 수첩에 기록: ' + ev.unlock.title });
       }
-      postLines(lines);
+      setTimeout(() => postLines(lines), ev.delay || 0);
     });
   });
 }
@@ -475,6 +507,7 @@ function runSearchQuery(q) {
 function presentEvidence(npc, clueId) {
   const clue = state.unlocked.find((c) => c.id === clueId);
   if (!clue) return;
+  if (npcGone(npc)) return pushLocal(npc, [{ type: 'me', text: '[증거 제시] ' + clue.title }, { type: 'sys', text: '(응답 없음)' }]);
   const entries = [{ type: 'me', text: '[증거 제시] ' + clue.title }];
   const key = npc + '|' + clueId;
   if (!state.presented.includes(key)) {
@@ -509,7 +542,14 @@ function goalLines(day) {
   return (DAY_GOALS[day] || []).map((g) => (g.check(state) ? '✔ ' : '○ ') + g.label);
 }
 function boardForDay(day) {
-  return BOARDS.find((b) => b.day === day && !b.final);
+  return BOARDS.find((b) => b.day === day && !b.final && !b.after);
+}
+// 그날의 보드 전부 (B는 A를 풀어야 보인다)
+function boardsForDay(day) {
+  return BOARDS.filter((b) => b.day === day && !b.final);
+}
+function boardVisible(b) {
+  return b.day <= state.day && (!b.after || boardSolved(b.after));
 }
 function boardSolved(id) {
   return !!(state.boards[id] && state.boards[id].solved);
@@ -531,11 +571,11 @@ async function advanceDay() {
     addSysLine('다음 날로 넘기는 건 방장(' + ((room.players[room.meta.hostId] || {}).name || '?') + ')만 할 수 있습니다.');
     return;
   }
-  const board = boardForDay(state.day);
-  if (board && !boardSolved(board.id)) {
+  const board = boardsForDay(state.day).find((b) => !boardSolved(b.id));
+  if (board) {
     const bs = boardState(board.id);
     const lockedN = board.slots.filter((_, i) => bs.locked[i]).length;
-    addSysLine('오늘의 추리 보드를 먼저 완성하세요: ' + board.title + ' (' + lockedN + '/' + board.slots.length + ' 칸 확정)');
+    addSysLine('오늘의 추리 보드를 먼저 완성하세요: ' + board.title + ' (' + lockedN + '/' + board.slots.length + ' 칸 확정)' + (board.after ? ' — 보드 A를 풀면 열립니다.' : ''));
     return;
   }
   const next = state.day + 1;
@@ -579,7 +619,8 @@ function checkBoard(board) {
     justSolved = true;
     Store.update(rp('boards/' + board.id), { solved: true });
     if (board.reward) unlockClue(board.reward.id, board.reward.title, board.reward.body, state.day, { silent: true });
-    postSys('✔ ' + me.name + '이(가) 마지막 칸을 채워 "' + board.title + '" 보드를 완성했습니다!' + (board.reward ? ' 📎 ' + board.reward.title : ''));
+    const nextB = BOARDS.find((b) => b.after === board.id);
+    postSys('✔ ' + me.name + '이(가) 마지막 칸을 채워 "' + board.title + '" 보드를 완성했습니다!' + (board.reward ? ' 📎 ' + board.reward.title : '') + (nextB ? ' 🧩 보드 B가 열렸습니다: ' + nextB.title : ''));
     checkGroupEvents();
   } else if (canLock) {
     postSys('🔒 ' + me.name + ' — "' + board.title + '" ' + correct.length + ' 칸 확정 (' + board.slots.filter((_, i) => state.boards[board.id].locked[i]).length + '/' + board.slots.length + ')');
@@ -735,8 +776,8 @@ function renderBoardScreen(force) {
   info.className = 'board-intro';
   info.textContent = '방 전체가 함께 채우는 보드입니다. 조각은 방 수첩에 단서가 모일수록 늘어납니다. 어느 칸이 틀렸는지는 알려 주지 않습니다 — 맞은 칸이 3 개 이상 모이면 잠깁니다.';
   body.appendChild(info);
-  BOARDS.filter((b) => !b.final && b.day <= state.day)
-    .sort((a, b) => b.day - a.day)
+  BOARDS.filter((b) => !b.final && boardVisible(b))
+    .sort((a, b) => b.day - a.day || (a.after ? -1 : 1))
     .forEach((b) => {
       const box = document.createElement('div');
       body.appendChild(box);
@@ -760,13 +801,13 @@ async function handleSend() {
   chatInput.value = '';
   if (text === '오늘은 여기까지') return advanceDay();
   if (ROSTER.includes(text)) return switchView(text);
-  if (text === '그룹채팅' || text === '그룹') return switchView('group');
+  if (text === '그룹채팅' || text === '그룹' || text === '새벽 2 시' || text === '새벽2시') return switchView('group');
+  if (text === '수사실') return switchView('private');
   if (text === '목표') {
-    const b = boardForDay(state.day);
-    if (b) {
+    boardsForDay(state.day).forEach((b) => {
       const bs = boardState(b.id);
-      addSysLine('[오늘의 추리 보드] ' + b.title + ' — ' + (bs.solved ? '완성 ✔' : b.slots.filter((_, i) => bs.locked[i]).length + '/' + b.slots.length + ' 칸 확정'));
-    }
+      addSysLine('[오늘의 추리 보드] ' + b.title + ' — ' + (bs.solved ? '완성 ✔' : !boardVisible(b) ? '(보드 A를 풀면 열림)' : b.slots.filter((_, i) => bs.locked[i]).length + '/' + b.slots.length + ' 칸 확정'));
+    });
     addSysLine('[DAY ' + state.day + ' 권장 조사]');
     goalLines(state.day).forEach(addSysLine);
     return;
@@ -807,16 +848,22 @@ async function handleSend() {
     return;
   }
 
+  if (view === 'private') {
+    await postPrivate({ type: 'me', from: me.name, pid: me.pid, text });
+    return;
+  }
   if (view === 'group') {
     await postChat({ type: 'me', from: me.name, pid: me.pid, text });
+    // 새벽 2 시 방에서 데미안을 범인으로 모는 말은 헨델(데미안)에게 새어 나간다 — 처음 한 번만 기록
+    if (LEAK_RE.test(squash(text))) Store.setIfAbsent(rp('leak'), { text, from: me.name, pid: me.pid, t: Date.now() });
     const r = findGroupReaction(text);
     if (r) {
       const key = 'reacted/d' + state.day + '_' + r.idx;
       Store.setIfAbsent(rp(key), true).then((ok) => {
-        if (ok) postLines(r.r.lines.map(([who, t]) => ({ type: 'npc', text: t, speaker: who })));
+        if (ok) postLines(aliveLines(r.r.lines.map(([who, t]) => ({ type: 'npc', text: t, speaker: who }))));
       });
     } else if (Math.random() < 0.35) {
-      const d = pickRandom(GROUP_DEFAULT_LINES);
+      const d = pickRandom(GROUP_DEFAULT_LINES.filter((l) => !npcGone(l.speaker)));
       setTimeout(() => postChat({ type: 'npc', text: d.text, speaker: d.speaker }), 500);
     }
     return;
@@ -825,6 +872,9 @@ async function handleSend() {
   // ----- 1:1 취조 -----
   const npc = view;
   const thread = state.threads[npc];
+  if (npcGone(npc)) {
+    return pushLocal(npc, [{ type: 'me', text }, { type: 'sys', text: '(응답 없음 — 포청천의 마지막 접속: DAY 3 밤. 남긴 것은 검색 "메모"에서)' }]);
+  }
   if (/^증거\s*/.test(text)) return presentEvidenceByText(npc, text.replace(/^증거\s*/, ''));
   const entries = [{ type: 'me', text }];
 
@@ -879,7 +929,7 @@ chatSend.addEventListener('click', handleSend);
 chatInput.addEventListener('keydown', (e) => e.key === 'Enter' && handleSend());
 evidenceGo.addEventListener('click', () => {
   const id = evidenceSelect.value;
-  if (!id || state.currentView === 'group') return;
+  if (!id || isRoomView(state.currentView)) return;
   presentEvidence(state.currentView, id);
   evidenceSelect.value = '';
 });
@@ -1044,13 +1094,15 @@ function closePopup() {
 }
 document.getElementById('popup-close').addEventListener('click', closePopup);
 document.getElementById('popup-close2').addEventListener('click', closePopup);
-document.getElementById('popup-share').addEventListener('click', () => {
+function sharePopup(view) {
   if (!popupCurrent) return;
-  postChat({ type: 'link', from: me.name, pid: me.pid, clueId: popupCurrent.id, text: popupCurrent.title, url: pageUrl(popupCurrent) });
+  postToView(view, { type: 'link', from: me.name, pid: me.pid, clueId: popupCurrent.id, text: popupCurrent.title, url: pageUrl(popupCurrent) });
   closePopup();
   openScreen('chat');
-  switchView('group');
-});
+  switchView(view);
+}
+document.getElementById('popup-share').addEventListener('click', () => sharePopup('group'));
+document.getElementById('popup-share-private').addEventListener('click', () => sharePopup('private'));
 
 function renderSearchResults(q, results) {
   searchResults.innerHTML = '';
@@ -1196,22 +1248,49 @@ function renderAccuse() {
   const resultBox = document.createElement('div');
   resultBox.id = 'accuse-result';
   body.appendChild(resultBox);
+  // 보드를 다 채우면 방 전체가 한 사람을 지목한다 (공유). 데미안 → TRUE END, NPC → BAD END
+  const showVerdictPick = () => {
+    const pick = document.createElement('div');
+    pick.className = 'verdict-pick';
+    const head = document.createElement('div');
+    head.className = 'board-title';
+    head.textContent = '마지막 로그가 완성됐다. 경찰에 알릴 한 사람을 지목하세요. (방 전체에 적용, 되돌릴 수 없음)';
+    pick.appendChild(head);
+    const row = document.createElement('div');
+    row.className = 'verdict-row';
+    ALIVE_NPCS.concat(['데미안']).forEach((name) => {
+      const b = document.createElement('div');
+      b.className = 'toolbtn verdict-btn';
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        Store.setIfAbsent(rp('verdict'), { name, by: me.name, t: Date.now() }).then((ok) => {
+          if (ok) postSys('⚖ ' + me.name + '이(가) 방 전체의 이름으로 ' + name + '을(를) 지목했습니다. 바탕화면 "최종 추리"에서 결말을 확인하세요.');
+        });
+      });
+      row.appendChild(b);
+    });
+    pick.appendChild(row);
+    resultBox.className = '';
+    resultBox.innerHTML = '';
+    resultBox.appendChild(pick);
+  };
   const showResult = () => {
     const fs = fakeStats();
-    const trueEnd = has('ev_demian_post');
-    const perfect = trueEnd && fs.found.length >= 5 && fs.refuted.length === fs.found.length;
+    const v = room.verdict;
+    const trueEnd = v && v.name === '데미안';
+    const perfect = trueEnd && has('ev_d5_handel') && fs.found.length >= 5 && fs.refuted.length === fs.found.length;
     let verdict;
-    if (perfect) verdict = '★★ PERFECT — 진실에 도달했고, 찾아낸 가짜 기록을 하나도 남기지 않고 전부 반박했습니다.';
-    else if (trueEnd) verdict = '★ TRUE END — 데미안이 남긴 마지막 로그까지 전부 읽어 냈습니다.';
-    else verdict = '보드는 완성했습니다. 하지만 데미안의 예약 게시물은 아직 열지 못했습니다. (DAY 5 그룹채팅)';
-    const lines = [verdict];
+    if (perfect) verdict = '★★ PERFECT — 검거. 데미안을 지목했고, 헨델까지 특정했으며, 찾아낸 가짜 기록을 하나도 남기지 않고 전부 반박했습니다.';
+    else if (trueEnd) verdict = ENDING_TRUE;
+    else verdict = ENDING_BAD.replace(/\{X\}/g, v.name);
+    const lines = [verdict, '', '[지목] ' + v.name + ' — ' + (v.by || '?') + ' 님이 방 전체의 이름으로'];
     if (fs.found.length) {
       lines.push('', '[가짜 기록] 찾은 ' + fs.found.length + ' 개 중 ' + fs.refuted.length + ' 개 반박');
       fs.found.forEach((d) => lines.push((isRefuted(d) ? '   ✘ ' : '   ○ ') + d.title));
     }
     lines.push('', '[함께한 사람들] ' + Object.values(room.players || {}).map((p) => p.name).join(', '));
     lines.push('', '[진실]', TRUE_STORY_TEXT);
-    resultBox.className = 'accuse-result';
+    resultBox.className = 'accuse-result' + (trueEnd ? '' : ' accuse-bad');
     resultBox.textContent = lines.join('\n');
   };
   const bs = boardState(final.id);
@@ -1228,7 +1307,7 @@ function renderAccuse() {
       if (baited.length && m && !cur.solved) m.textContent += ' ⚠ 수첩의 어떤 기록은 사실이 아닐 수 있습니다.';
     });
   }
-  if (bs.solved) showResult();
+  if (bs.solved) (room.verdict ? showResult() : showVerdictPick());
 }
 
 // ===== 방 입장/생성/동기화 =====
@@ -1243,7 +1322,8 @@ function onRoomChange(section) {
   syncMirror();
   if (lobbyView.classList.contains('hidden')) {
     renderRoster();
-    if (section === 'chat') renderGroupChat(false);
+    if ((section === 'chat' && state.currentView === 'group') || (section === 'private' && state.currentView === 'private')) renderGroupChat(false);
+    if (section === 'verdict' && !document.getElementById('view-accuse').classList.contains('hidden')) renderAccuse();
     if (section === 'unlocked') renderEvidenceRow();
     if (section === 'boards' || section === 'meta') {
       if (!document.getElementById('view-board').classList.contains('hidden')) renderBoardScreen();
@@ -1260,7 +1340,9 @@ function subscribeRoom() {
   ['meta', 'players', 'unlocked', 'boards', 'events', 'presented', 'reacted'].forEach((sec) => {
     unsubs.push(Store.on(rp(sec), (v) => { room[sec] = v || (sec === 'meta' ? null : {}); onRoomChange(sec); }));
   });
+  ['leak', 'verdict'].forEach((sec) => unsubs.push(Store.on(rp(sec), (v) => { room[sec] = v || null; onRoomChange(sec); })));
   unsubs.push(Store.on(rp('chat'), (v) => { room.chat = v || {}; onRoomChange('chat'); }, { limitToLast: 300 }));
+  unsubs.push(Store.on(rp('private'), (v) => { room.private = v || {}; onRoomChange('private'); }, { limitToLast: 300 }));
 }
 let presenceTimer = null;
 function heartbeat() {
