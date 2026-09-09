@@ -212,6 +212,7 @@ function addMessage(from, text, name, isPlayer) {
     if (isPlayer) avatar.textContent = (name || '?').slice(0, 1);
   }
   const wrap = document.createElement('div');
+  wrap.className = 'msgwrap';
   wrap.style.display = 'flex';
   wrap.style.flexDirection = 'column';
   wrap.style.gap = '2px';
@@ -1039,7 +1040,9 @@ function renderPageInto(container, clue) {
       t.appendChild(tr);
     });
     const wrap = el('div', 'pg-body');
-    wrap.appendChild(t);
+    const tw = el('div', 'tablewrap');
+    tw.appendChild(t);
+    wrap.appendChild(tw);
     pg.appendChild(wrap);
   } else if (p.site === 'chat') {
     pg.appendChild(el('div', 'pg-head', p.title || clue.title));
@@ -1464,11 +1467,10 @@ document.getElementById('lobby-mode').textContent =
 })();
 
 // ===== 화면 크기에 맞춰 축소 =====
-const bezel = document.getElementById('bezel');
+// 화면은 CSS로 뷰포트에 맞춘다(축소 변환 없음). 휴대폰 주소창·키보드 때문에 실제 높이가 바뀌면 --vh를 갱신한다.
 function fitStage() {
-  const margin = 40;
-  const scale = Math.min(1, (window.innerWidth - margin) / 460, (window.innerHeight - margin) / 560);
-  bezel.style.transform = 'scale(' + scale + ')';
+  document.documentElement.style.setProperty('--vh', window.innerHeight + 'px');
 }
 window.addEventListener('resize', fitStage);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', fitStage);
 fitStage();
