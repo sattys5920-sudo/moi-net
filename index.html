@@ -57,6 +57,10 @@
               <svg width="34" height="30" viewBox="0 0 16 14"><path d="M1 3h5l1.5 2H15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#eec95a" stroke="#8a6a12" stroke-width="0.6"/></svg>
               <span class="iconlabel">단서 수첩</span>
             </div>
+            <div class="icontile" data-open="chatlog">
+              <svg width="34" height="34" viewBox="0 0 34 34"><rect x="3" y="5" width="28" height="20" rx="2" fill="#f2efe6" stroke="#5a4a2a" stroke-width="1.2"/><path d="M8 11h18M8 15h18M8 19h11" stroke="#8a7a52" stroke-width="1.4"/><circle cx="24" cy="24" r="6.5" fill="#eaf4ff" stroke="#2a4a6b" stroke-width="2"/><line x1="28.6" y1="28.6" x2="32" y2="32" stroke="#2a4a6b" stroke-width="2.6" stroke-linecap="round"/></svg>
+              <span class="iconlabel">대화 기록</span>
+            </div>
             <div class="icontile" data-open="board">
               <svg width="34" height="34" viewBox="0 0 34 34"><rect x="2" y="4" width="30" height="24" rx="2" fill="#2f5d3a" stroke="#1b3a22" stroke-width="1.2"/><rect x="5" y="7" width="24" height="18" fill="#3b7a4a"/><path d="M8 12h8M8 16h12M8 20h6" stroke="#eaf4dc" stroke-width="1.6" stroke-linecap="round"/><rect x="21" y="18" width="6" height="4" fill="#ffd23f" stroke="#8a6a12" stroke-width="0.8"/></svg>
               <span class="iconlabel">추리 보드</span>
@@ -127,6 +131,18 @@
               <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
             </div>
             <div class="sunken" id="notebook-list" style="flex:1;min-height:0;margin:8px;padding:10px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;"></div>
+          </div>
+
+          <div id="view-chatlog" class="win hidden">
+            <div class="titlebar">
+              <span>대화 기록</span>
+              <div class="tbtns"><div class="tbtn">▲</div><div class="tbtn" data-close>✕</div></div>
+            </div>
+            <div class="inputrow">
+              <input id="chatlog-search" class="chatinput" placeholder="지금까지 나온 대사에서 검색... (비워 두면 전체 보기)" autocomplete="off">
+              <div class="toolbtn sendbtn" id="chatlog-clear">전체 보기</div>
+            </div>
+            <div class="sunken" id="chatlog-body" style="flex:1;min-height:0;margin:0 8px 8px;padding:10px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;"></div>
           </div>
 
           <div id="view-board" class="win hidden">

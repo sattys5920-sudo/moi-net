@@ -1,12 +1,13 @@
 // ===== LAST LOG : 마지막 접속 — 협동 라이브 추리 (최대 12 명) =====
 // 각자 NPC를 따로 취조하지만, 알아낸 단서·수첩·추리 보드·그룹채팅은 방 전체가 실시간으로 공유한다.
 
-const SCREENS = ['profile', 'chat', 'search', 'folder', 'board', 'internet', 'accuse'];
+const SCREENS = ['profile', 'chat', 'search', 'folder', 'chatlog', 'board', 'internet', 'accuse'];
 const TITLES = {
   profile: '내 프로필',
   chat: 'moi.net',
   search: '검색',
   folder: '단서 수첩',
+  chatlog: '대화 기록',
   board: '추리 보드',
   internet: '인터넷 브라우저',
   accuse: '최종 추리',
@@ -32,6 +33,7 @@ function openScreen(name) {
     switchView(state.currentView);
   }
   if (name === 'folder') renderNotebook();
+  if (name === 'chatlog') renderChatLog(document.getElementById('chatlog-search').value);
   if (name === 'board') renderBoardScreen();
   if (name === 'accuse') renderAccuse();
 }
@@ -90,8 +92,9 @@ const DAY_HINTS = {
   5: '"정보 유출 구조"와 "다음 표적"을 검색해 보세요. 예약 게시물이 올라오면 그 직후 그룹채팅을 지켜보세요.',
 };
 const HELP_LINES = [
-  '명령어: 닉네임 입력 → 1:1 취조 | 새벽 2 시(그룹채팅) | 수사실 | 검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 방 정보 | 오늘은 여기까지(방장)',
+  '명령어: 닉네임 입력 → 1:1 취조 | 새벽 2 시(그룹채팅) | 수사실 | 검색 ○○ | 대화기록 | 대화검색 ○○ | 증거 ○○ | 목표 | 힌트 | 정리해줘 | 방 정보 | 오늘은 여기까지(방장)',
   '"새벽 2 시"는 NPC가 듣는 방입니다. "수사실"은 플레이어끼리만 쓰는 방입니다 — 누구를 의심하는지는 수사실에서.',
+  '"대화기록"을 입력하거나 바탕화면의 "대화 기록"을 열면, 지금까지 나온 대사를 전부 다시 보거나 키워드로 검색할 수 있습니다.',
   '1:1 취조에서 알아낸 건 방 전체 수첩에 바로 공유됩니다. 아래 "증거 제시" 메뉴로 수첩의 단서를 상대에게 보여 줄 수 있습니다.',
   '바탕화면의 "추리 보드"는 방 전체가 함께 채웁니다. 오늘 보드를 다 잠그면 방장이 다음 날로 넘길 수 있습니다.',
 ];
@@ -304,6 +307,7 @@ function postLines(lines) {
 function pushLocal(view, entries) {
   state.threads[view].history.push(...entries);
   saveThreads();
+  if (!document.getElementById('view-chatlog').classList.contains('hidden')) renderChatLog(document.getElementById('chatlog-search').value);
   if (state.currentView !== view) return;
   entries.forEach((e, i) => setTimeout(() => state.currentView === view && renderEntry(e), i * 350));
 }
@@ -831,6 +835,18 @@ async function handleSend() {
     runSearch();
     return;
   }
+  if (text === '대화기록' || text === '대화 기록') {
+    document.getElementById('chatlog-search').value = '';
+    openScreen('chatlog');
+    return;
+  }
+  if (/^대화\s*검색\s*/.test(text)) {
+    const q = text.replace(/^대화\s*검색\s*/, '');
+    document.getElementById('chatlog-search').value = q;
+    openScreen('chatlog');
+    renderChatLog(q);
+    return;
+  }
   if (text === '힌트') {
     addMessage('me', text);
     addMessage('other', DAY_HINTS[state.day] || DAY_HINTS[1], '힌트');
@@ -1237,6 +1253,58 @@ function renderNotebook() {
     });
 }
 
+
+// ===== 대화 기록 (자동 응답 대신 지난 대사를 열람·검색) =====
+// 자동으로 나온 NPC 대사·그룹채팅·수사실 대화를 전부 모아서, 키워드로 다시 찾아볼 수 있게 한다.
+// DM(1:1 취조) 기록은 이 브라우저(나)만의 것이고, 새벽 2 시·수사실은 방 전체가 공유한 기록이다.
+function chatLogSections() {
+  const sections = [{ id: 'group', label: '새벽 2 시 (공유)', entries: chatEntries('group') }, { id: 'private', label: '수사실 (공유)', entries: chatEntries('private') }];
+  ROSTER.forEach((npc) => sections.push({ id: npc, label: npc + ' — 1:1 취조 (나만 보임)', entries: (state.threads[npc] && state.threads[npc].history) || [] }));
+  return sections;
+}
+function chatLogEntryText(e) {
+  if (e.type === 'sys') return e.text;
+  if (e.type === 'link') return '🔗 ' + e.text;
+  if (e.type === 'me') return (e.pid && e.pid !== me.pid ? (e.from || '?') : '나') + ': ' + e.text;
+  return (e.speaker || '?') + ': ' + e.text;
+}
+function renderChatLog(query) {
+  const body = document.getElementById('chatlog-body');
+  body.innerHTML = '';
+  const q = query ? squash(norm(query)) : '';
+  const sections = chatLogSections();
+  let totalHits = 0;
+  let day = 1;
+  sections.forEach((sec) => {
+    day = 1;
+    const matches = sec.entries.filter((e) => {
+      const m = e.type === 'sys' && typeof e.text === 'string' && e.text.match(/=== DAY (\d+) ===/);
+      if (m) day = m[1];
+      return e.text && (!q || squash(norm(e.text)).includes(q));
+    });
+    if (q && !matches.length) return;
+    body.appendChild(el('div', 'clue-title', sec.label + (q ? ' — ' + matches.length + ' 건 일치' : ' (' + sec.entries.length + ' 줄)')));
+    if (!matches.length) {
+      body.appendChild(el('div', 'clue-empty', '아직 대화가 없습니다.'));
+      return;
+    }
+    day = 1;
+    matches.forEach((e) => {
+      const m = e.type === 'sys' && typeof e.text === 'string' && e.text.match(/=== DAY (\d+) ===/);
+      if (m) day = m[1];
+      const row = el('div', 'clue-body chatlog-row');
+      const prefix = sec.id === 'group' || sec.id === 'private' ? 'DAY ' + day + ' · ' : '';
+      row.textContent = prefix + chatLogEntryText(e);
+      body.appendChild(row);
+      totalHits++;
+    });
+  });
+  if (q && !totalHits) body.appendChild(el('div', 'clue-empty', '"' + query + '"에 해당하는 대화를 찾지 못했습니다. 아직 그 얘기가 안 나왔거나, 다른 낱말로 물어봤을 수 있습니다.'));
+}
+const chatlogSearch = document.getElementById('chatlog-search');
+chatlogSearch.addEventListener('input', () => renderChatLog(chatlogSearch.value));
+document.getElementById('chatlog-clear').addEventListener('click', () => { chatlogSearch.value = ''; renderChatLog(''); });
+
 // ===== 최종 추리(공유 보드) =====
 function renderAccuse() {
   const body = document.getElementById('accuse-body');
@@ -1335,6 +1403,7 @@ function onRoomChange(section) {
     if (section === 'unlocked' && !document.getElementById('view-folder').classList.contains('hidden')) renderNotebook();
     if (section === 'unlocked' && !document.getElementById('view-board').classList.contains('hidden')) renderBoardScreen();
     if (section === 'unlocked' && !document.getElementById('view-accuse').classList.contains('hidden')) renderAccuse();
+    if ((section === 'chat' || section === 'private') && !document.getElementById('view-chatlog').classList.contains('hidden')) renderChatLog(document.getElementById('chatlog-search').value);
     if (section === 'meta' || section === 'unlocked') checkGroupEvents();
   }
 }
