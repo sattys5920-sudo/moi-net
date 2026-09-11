@@ -267,6 +267,31 @@ a:hover{color:#0d2f8f;}
 .pg-profile .kv b{display:inline-block;width:64px;color:#555;font-weight:400;}
 .link-bubble{cursor:pointer;text-decoration:underline;color:#1a4fd6;}
 .clue-open{font-size:var(--fs-xs);color:#1a4fd6;text-decoration:underline;cursor:pointer;margin-left:6px;}
+/* 검색 v3: 잠긴 결과 · 오타 제안 · 실시간 검색어 · 최근 검색어 · 로그인/삭제 페이지 */
+.sr-locked .result-title{color:#777;cursor:default;}
+.sr-locked .result-snip{color:#999;font-style:italic;}
+.sr-noise .result-url{color:#8a8a5c;}
+.sr-dym{font-size:var(--fs);color:#c00;margin:2px 0 10px;}
+.sr-dym a{color:#1a4fd6;font-weight:700;font-style:italic;}
+.sr-tips{font-size:var(--fs-sm);color:#666;margin:0 0 14px;padding-left:18px;}
+.sr-trend{border:1px solid #d5d5d5;background:#fff;padding:8px 12px;max-width:280px;font-size:var(--fs-sm);margin-top:6px;}
+.sr-trend-h{font-weight:700;color:#333;margin-bottom:4px;}
+.sr-trend ol{margin:0;padding-left:20px;}
+.sr-trend a{color:#333;text-decoration:none;}
+.sr-trend a:hover{text-decoration:underline;}
+.sr-recent{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}
+.sr-recent-chip{font-size:var(--fs-xs);padding:3px 9px;background:#eef1f6;border:1px solid #ccd3de;border-radius:11px;color:#333;cursor:pointer;}
+.sr-recent-chip:hover{background:#e2e7f0;}
+.pg-login{max-width:300px;margin:24px auto;padding:16px;border:1px solid #bbb;background:#f7f7f7;font-size:var(--fs-sm);}
+.pg-login-h{font-weight:700;margin-bottom:10px;font-size:var(--fs);}
+.pg-login label{display:block;margin-bottom:8px;}
+.pg-login input{width:100%;box-sizing:border-box;padding:6px 8px;font-size:var(--fs-sm);font-family:Tahoma,Verdana,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;margin-top:2px;}
+.pg-login .toolbtn{width:auto;padding:0 14px;margin-top:4px;}
+.pg-pw-hint{color:#777;font-size:var(--fs-xs);margin-top:8px;}
+.pg-pw-msg{color:#c00;font-size:var(--fs-xs);margin-top:4px;}
+.pg-deleted{padding:40px 12px;text-align:center;color:#666;font-size:var(--fs);}
+.pg-cache{color:#1a4fd6;font-size:var(--fs-sm);}
+.pg-cache-banner{background:#fff8c4;border-bottom:1px solid #e0d070;padding:6px 10px;font-size:var(--fs-xs);color:#555;}
 .chatlog-row{padding:3px 0;border-bottom:1px dotted #d8d8d8;}
 .chatlog-row:last-child{border-bottom:none;}
 /* v2: 두 개의 채팅방, 사망한 NPC, 최종 지목 */

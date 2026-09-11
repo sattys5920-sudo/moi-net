@@ -32,6 +32,7 @@ function openScreen(name) {
     renderRoster();
     switchView(state.currentView);
   }
+  if (name === 'search' && !searchInput.value.trim()) renderSearchHome();
   if (name === 'folder') renderNotebook();
   if (name === 'chatlog') renderChatLog(document.getElementById('chatlog-search').value);
   if (name === 'board') renderBoardScreen();
@@ -64,6 +65,11 @@ function norm(s) {
 function squash(s) {
   return norm(s).replace(/\s/g, '');
 }
+const KEYWORD_REVERSE_MIN = 2;      // 검색어를 짧게 쳐서(역방향) 맞히려면 최소 이 글자 수는 되어야 한다
+const KEYWORD_REVERSE_RATIO = 0.6;  // …그리고 키워드 길이의 이 비율 이상이어야 한다
+// 예: '수미'(2)→'방수미'(3) 는 2/3=0.67 로 통과, '데'(1)→'데미안' 은 1글자라 애초에 막힘, 'wk'(2)→'wkwkdfoq'(8) 은 2/8 로 막힘.
+// 정방향(검색어가 키워드를 온전히 포함)은 제한하지 않는다 — '돈'·'왜'처럼 한 글자로 설계된 키워드도 있기 때문. 한 글자·두 글자를
+// "찍어서" 훨씬 긴 다른 키워드까지 끌어오는 역방향 쪽만 막는다. NPC 대사 매칭도 이 함수를 같이 쓴다.
 function keywordScore(keywords, q) {
   const nq = squash(q);
   if (!nq) return 0;
@@ -73,8 +79,14 @@ function keywordScore(keywords, q) {
     if (!nk) return;
     const spaced = norm(k);
     const single = !spaced.includes(' ');
-    const hit = nq.includes(nk) || (single && nk.includes(nq));
-    if (hit && spaced.length > best) best = spaced.length;
+    if (nq.includes(nk)) {
+      if (spaced.length > best) best = spaced.length; // 정방향: 키워드를 온전히 침
+      return;
+    }
+    if (single && nk.includes(nq) && nq.length >= KEYWORD_REVERSE_MIN && nq.length >= Math.ceil(nk.length * KEYWORD_REVERSE_RATIO)) {
+      const score = Math.ceil(spaced.length / 2); // 역방향: 일부만 침 — 온전히 친 결과보다 항상 아래로
+      if (score > best) best = score;
+    }
   });
   return best;
 }
@@ -390,16 +402,15 @@ function allPieceTexts() {
 }
 
 // ===== 단서(공유) =====
+// 오브라딘 원칙: 이 단서가 보드 조각으로 쓰이는지는 여기서 알려 주지 않는다(추리 보드를 열어야 보인다).
+// "📎 기록됨"은 무엇을 알아냈는지 알려 주는 중립적인 표시이고, 그게 조각인지 아닌지는 스스로 맞춰 봐야 한다.
 function unlockClue(id, title, body, day, opts) {
   if (has(id)) return false;
-  const before = allPieceTexts();
   const rec = { id, title, body, day, by: me.name, t: Date.now() };
   state.unlocked.push(rec);
   renderEvidenceRow();
   Store.setIfAbsent(rp('unlocked/' + id), { title, body, day, by: me.name, t: rec.t });
   if (!(opts && opts.silent)) postSys('📎 ' + me.name + ' — ' + title);
-  const fresh = Array.from(allPieceTexts()).filter((k) => !before.has(k)).map((k) => k.split(':').slice(1).join(':'));
-  if (fresh.length) postSys('🧩 새 조각: ' + fresh.join(', ') + ' (' + me.name + ')');
   return true;
 }
 
@@ -504,8 +515,52 @@ function mentionedOther(npc, text) {
   const sq = squash(text);
   return ROSTER.find((n) => n !== npc && sq.includes(squash(n))) || null;
 }
+// ----- 검색 v3: 동의어 · 잠금/숨김 판정 · 해시 -----
+function hash32(str) {
+  let h = 2166136261;
+  for (const ch of String(str)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// 동의어 표를 이용해 검색어 쪽을 넓힌다(원래 검색어 포함). 키워드 데이터는 그대로 둔다.
+function expandQuery(raw) {
+  const base = squash(raw);
+  const out = new Set([raw, base]);
+  Object.entries(SEARCH_ALIASES).forEach(([canon, vars]) => {
+    const c = squash(canon);
+    vars.forEach((v0) => {
+      const v = squash(v0);
+      if (base.includes(v)) out.add(base.split(v).join(c));
+      if (base.includes(c)) out.add(base.split(c).join(v));
+    });
+  });
+  return Array.from(out);
+}
+function keywordScoreExpanded(keywords, raw) {
+  let best = 0;
+  expandQuery(raw).forEach((q) => { const s = keywordScore(keywords, q); if (s > best) best = s; });
+  return best;
+}
+// 이 단서를 지금 보여 줄 수 있는가. open = 정상 결과 / locked = 뜨지만 잠김(회원 전용 등, clue.lockAs 필요) / hidden = 아예 없음(아직 세상에 없는 글).
+// requires가 안 채워졌을 때 clue.lockAs가 있으면 hidden 대신 locked로 보여 준다. showEarly:true면 day가 안 됐을 때도 locked로 보여 준다.
+function searchAvailability(c) {
+  const dayOk = c.day <= state.day;
+  const reqOk = !c.requires || c.requires.every(has);
+  if (dayOk && reqOk) return 'open';
+  if (c.lockAs && (dayOk || c.lockAs.showEarly)) return 'locked';
+  return 'hidden';
+}
 function runSearchQuery(q) {
-  return SEARCH_CLUES.filter((c) => c.day <= state.day && (!c.requires || c.requires.every(has)) && keywordScore(c.keywords, q) > 0);
+  const out = [];
+  SEARCH_CLUES.forEach((c) => {
+    const s = keywordScoreExpanded(c.keywords, q);
+    if (!s) return;
+    const av = searchAvailability(c);
+    if (av === 'hidden') return;
+    out.push({ clue: c, score: s, av });
+  });
+  // 관련도(점수) 순, 같으면 데이터에 적힌 순서 그대로 — "중요도 순" 정렬은 하지 않는다. 1 등이 곧 정답이 되면 추리가 사라진다.
+  out.sort((a, b) => b.score - a.score || SEARCH_CLUES.indexOf(a.clue) - SEARCH_CLUES.indexOf(b.clue));
+  return out;
 }
 
 // ===== 증거 제시 =====
@@ -1092,16 +1147,115 @@ function renderPageInto(container, clue) {
   }
   container.appendChild(pg);
 }
+// 내가 직접 연 결과 = 보라색(visited). NEW 배지는 방 전체 기준(has)이라 팀원이 먼저 열면 나와 무관하게 사라진다 —
+// 이 둘은 서로 다른 신호라 따로 기록한다. 방+나(pid) 단위로 이 브라우저에만 남는다 (state.threads와 같은 방식).
+const myOpened = new Set();
+function openedKey() { return 'lastlog-opened-' + room.code + '-' + me.pid; }
+function loadOpened() { myOpened.clear(); loadJSON(openedKey(), [], null).forEach((id) => myOpened.add(id)); }
+function noteOpened(id) {
+  if (myOpened.has(id)) return;
+  myOpened.add(id);
+  saveJSON(openedKey(), Array.from(myOpened));
+}
+// 최근 검색어 — ↑/↓로 오가는 개인 기록(2010년대 브라우저 주소창처럼). 역시 방+나 단위.
+const SEARCH_HISTORY_MAX = 20;
+let searchHistory = [];
+let historyCursor = -1;
+function historyKey() { return 'lastlog-searchhist-' + room.code + '-' + me.pid; }
+function loadSearchHistory() { searchHistory = loadJSON(historyKey(), [], null); historyCursor = -1; }
+function pushHistory(q) {
+  const t = String(q).trim();
+  if (!t) return;
+  const i = searchHistory.indexOf(t);
+  if (i >= 0) searchHistory.splice(i, 1);
+  searchHistory.unshift(t);
+  if (searchHistory.length > SEARCH_HISTORY_MAX) searchHistory.length = SEARCH_HISTORY_MAX;
+  historyCursor = -1;
+  saveJSON(historyKey(), searchHistory);
+}
+function historyStep(dir) {
+  const n = historyCursor + dir;
+  if (n < -1 || n >= searchHistory.length) return undefined;
+  historyCursor = n;
+  return n === -1 ? '' : searchHistory[n];
+}
+// 인터넷이 변하는 페이지: 날짜별로 삭제/캐시되거나(states) 로그인이 필요한(login) 페이지. 지금은 어떤 PAGES 항목도
+// 이 필드를 쓰지 않지만(콘텐츠는 별도 작업), 나중에 붙일 수 있도록 렌더링 경로만 미리 마련해 둔다.
+function resolvePageState(page) {
+  if (!page || !page.states) return page;
+  let cur = { ...page };
+  Object.keys(page.states).map(Number).sort((a, b) => a - b).forEach((d) => { if (state.day >= d) cur = { ...cur, ...page.states[d] }; });
+  return cur;
+}
+function pageGate(clue, rawPage, container, renderReal) {
+  const p = resolvePageState(rawPage) || {};
+  if (p.login && !(state.solved && state.solved[p.login.key])) {
+    container.innerHTML = '';
+    const gate = el('div', 'pg-login');
+    gate.appendChild(el('div', 'pg-login-h', '로그인이 필요한 페이지입니다'));
+    const idRow = el('label', '', '아이디 ');
+    const idInput = document.createElement('input');
+    idInput.value = p.login.user; idInput.disabled = true;
+    idRow.appendChild(idInput); gate.appendChild(idRow);
+    const pwRow = el('label', '', '비밀번호 ');
+    const pwInput = document.createElement('input');
+    pwInput.type = 'password'; pwInput.className = 'pg-pw'; pwInput.autocomplete = 'off';
+    pwRow.appendChild(pwInput); gate.appendChild(pwRow);
+    const go = el('div', 'toolbtn pg-pw-go', '로그인');
+    gate.appendChild(go);
+    if (p.login.hint) gate.appendChild(el('div', 'pg-pw-hint', p.login.hint));
+    const msg = el('div', 'pg-pw-msg');
+    gate.appendChild(msg);
+    container.appendChild(gate);
+    let tries = 0;
+    const tryGo = () => {
+      if (squash(pwInput.value) === squash(p.login.answer)) {
+        state.solved = state.solved || {};
+        state.solved[p.login.key] = true;
+        renderReal();
+      } else {
+        tries++;
+        msg.textContent = '비밀번호가 일치하지 않습니다. (' + tries + '/5)' + (tries >= 5 ? ' — 잠시 후 다시 시도해 주세요.' : '');
+        if (tries >= 5) { pwInput.disabled = true; setTimeout(() => { pwInput.disabled = false; tries = 0; }, 30000); }
+      }
+    };
+    go.addEventListener('click', tryGo);
+    pwInput.addEventListener('keydown', (e) => e.key === 'Enter' && tryGo());
+    return true;
+  }
+  if (p.deleted) {
+    container.innerHTML = '';
+    const gone = el('div', 'pg-deleted');
+    gone.appendChild(el('p', '', '작성자에 의해 삭제된 게시물입니다.'));
+    if (p.cacheDate) {
+      const a = el('a', 'pg-cache', '저장된 페이지 보기 (' + p.cacheDate + ' 기준)');
+      a.href = '#';
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        renderReal();
+        container.insertBefore(el('div', 'pg-cache-banner', '이 페이지는 ' + p.cacheDate + '에 저장된 사본입니다. 현재 페이지는 삭제되었습니다.'), container.firstChild);
+      });
+      gone.appendChild(a);
+    }
+    container.appendChild(gone);
+    return true;
+  }
+  return false;
+}
 function openPopup(clue) {
   popupCurrent = clue;
   document.getElementById('popup-title').textContent = siteName(pageUrl(clue)) + ' — ' + clue.title;
   document.getElementById('popup-url').textContent = pageUrl(clue);
-  renderPageInto(popupBody, clue);
-  popupBody.scrollTop = 0;
+  const reveal = () => {
+    renderPageInto(popupBody, clue);
+    popupBody.scrollTop = 0;
+    if (!clue.noise) {
+      if (unlockClue(clue.id, clue.title, clue.body, clue.day)) checkGroupEvents();
+    }
+  };
   popupView.classList.remove('hidden');
-  if (!clue.noise) {
-    if (unlockClue(clue.id, clue.title, clue.body, clue.day)) checkGroupEvents();
-  }
+  if (!pageGate(clue, pageFor(clue), popupBody, reveal)) reveal();
+  if (!clue.noise) noteOpened(clue.id);
 }
 function openPopupById(id) {
   const c = SEARCH_CLUES.find((x) => x.id === id) || NOISE_RESULTS.find((x) => x.id === id);
@@ -1123,19 +1277,185 @@ function sharePopup(view) {
 document.getElementById('popup-share').addEventListener('click', () => sharePopup('group'));
 document.getElementById('popup-share-private').addEventListener('click', () => sharePopup('private'));
 
-function renderSearchResults(q, results) {
+// ----- 잡음(광고) 결과: 결정론적 -----
+// 잡음마다 2글자 이상 keywords가 있으면 그게 맞을 때만, 그 밖엔 (검색어+DAY+잡음id) 해시로 낮은 확률만.
+// 예전처럼 '방' 한 글자가 트리거에 들어 있지 않으므로 '방수미'를 쳐도 무관한 잡음이 끼지 않고, 같은 DAY·같은 검색어면 누가 쳐도 같은 잡음이 나온다.
+const NOISE_BASE_RATE = 0.18;
+function pickNoise(raw, realCount) {
+  const picked = NOISE_RESULTS.filter((n) => {
+    const hit = n.keywords && keywordScoreExpanded(n.keywords, raw) > 0;
+    const roll = (hash32(squash(raw) + '|' + state.day + '|' + n.id) % 1000) / 1000;
+    return hit || roll < NOISE_BASE_RATE;
+  });
+  return picked.slice(0, realCount === 0 ? 1 : 2);
+}
+
+// ----- 스니펫: 맞은 낱말 근처를 낱말 경계에서 잘라내고, 그 낱말을 굵게 -----
+const SNIPPET_LEN = 78;
+function buildSnippetInto(container, clue, raw) {
+  const src = String(clue.body || '');
+  const hitKw = (clue.keywords || [])
+    .filter((k) => keywordScoreExpanded([k], raw) > 0 && src.includes(k))
+    .sort((a, b) => b.length - a.length)[0];
+  const pos = hitKw ? src.indexOf(hitKw) : -1;
+  let start = 0;
+  if (pos > SNIPPET_LEN * 0.5) {
+    start = pos - Math.floor(SNIPPET_LEN * 0.3);
+    const sp = src.lastIndexOf(' ', start);
+    if (sp > 0) start = sp + 1;
+  }
+  let end = Math.min(src.length, start + SNIPPET_LEN);
+  if (end < src.length) {
+    const sp = src.lastIndexOf(' ', end);
+    if (sp > start + SNIPPET_LEN * 0.6) end = sp;
+  }
+  if (start > 0) container.appendChild(document.createTextNode('…'));
+  const mid = src.slice(start, end);
+  if (hitKw && mid.includes(hitKw)) {
+    const i = mid.indexOf(hitKw);
+    container.appendChild(document.createTextNode(mid.slice(0, i)));
+    container.appendChild(el('b', '', hitKw));
+    container.appendChild(document.createTextNode(mid.slice(i + hitKw.length)));
+  } else {
+    container.appendChild(document.createTextNode(mid));
+  }
+  if (end < src.length) container.appendChild(document.createTextNode('…'));
+}
+
+// ----- "이것을 찾으셨나요?": 자모 단위 편집거리로 오타를 잡는다. 지금 열려 있는(open) 단서의 키워드만 후보로 써서
+// 아직 나오지 않은 미래 단서를 오타로 알아내는 걸 막는다. -----
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const JUNG = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ';
+const JONG = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+function toJamo(str) {
+  let r = '';
+  for (const ch of str) {
+    const code = ch.charCodeAt(0) - 0xac00;
+    if (code >= 0 && code < 11172) r += CHO[Math.floor(code / 588)] + JUNG[Math.floor((code % 588) / 28)] + JONG[code % 28];
+    else r += ch;
+  }
+  return r;
+}
+function levDist(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function didYouMean(raw) {
+  const pool = [];
+  SEARCH_CLUES.forEach((c) => { if (searchAvailability(c) === 'open') (c.keywords || []).forEach((k) => { if (squash(k).length >= 2) pool.push(k); }); });
+  const tokens = String(raw).trim().split(/\s+/);
+  for (const t of tokens) {
+    const tq = squash(t);
+    if (tq.length < 2) continue;
+    const tj = toJamo(tq);
+    let best = null; let bestD = 99;
+    pool.forEach((k) => {
+      const ks = squash(k);
+      const tol = ks.length >= 4 ? 2 : 1;
+      const d = levDist(tj, toJamo(ks), tol);
+      if (d > 0 && d <= tol && d < bestD) { best = k; bestD = d; }
+    });
+    if (best) return String(raw).replace(t, best);
+  }
+  return null;
+}
+
+// ----- 실시간 급상승 검색어 (검색 홈 · 결과 없음 화면) -----
+function renderTrendingInto(container) {
+  const list = SEARCH_TRENDING[state.day] || [];
+  if (!list.length) return;
+  const box = el('div', 'sr-trend');
+  box.appendChild(el('div', 'sr-trend-h', '실시간 급상승 검색어'));
+  const ol = document.createElement('ol');
+  list.forEach((w) => {
+    const li = document.createElement('li');
+    const a = el('a', '', w);
+    a.href = '#';
+    a.addEventListener('click', (ev) => { ev.preventDefault(); searchInput.value = w; runSearch(); });
+    li.appendChild(a);
+    ol.appendChild(li);
+  });
+  box.appendChild(ol);
+  container.appendChild(box);
+}
+// 검색어를 아직 안 쳤을 때(검색 홈): 최근 검색어 + 실시간 검색어.
+function renderSearchHome() {
+  searchResults.innerHTML = '';
+  searchAddr.textContent = 'http://search.pc89.net/';
+  if (searchHistory.length) {
+    searchResults.appendChild(el('div', 'result-count', '최근 검색어'));
+    const wrap = el('div', 'sr-recent');
+    searchHistory.slice(0, 8).forEach((t) => {
+      const chip = el('span', 'sr-recent-chip', t);
+      chip.addEventListener('click', () => { searchInput.value = t; runSearch(); });
+      wrap.appendChild(chip);
+    });
+    searchResults.appendChild(wrap);
+  }
+  renderTrendingInto(searchResults);
+  if (!searchHistory.length && !(SEARCH_TRENDING[state.day] || []).length) {
+    searchResults.appendChild(el('div', 'clue-empty', '검색어를 입력해 보세요.'));
+  }
+}
+const MAX_SHOWN = 8; // 한 번에 보여 주는 결과 수. 지금 데이터로는 한 낱말이 4 건 넘게 걸리는 경우가 없어 실제로는 거의 안 걸린다 — 앞으로 검색 단서가 늘어도 목록이 끝없이 안 길어지게 하는 안전판.
+function renderSearchResults(q, ranked) {
   searchResults.innerHTML = '';
   searchAddr.textContent = 'http://search.pc89.net/?q=' + encodeURIComponent(q);
-  const noise = NOISE_RESULTS.filter((n) => keywordScore(['링크', '채팅방', '공지', '실종', '친구', '방'], q) > 0 || Math.random() < 0.4).slice(0, 2);
-  const all = results.map((r) => ({ clue: r, noise: false })).concat(noise.map((n) => ({ clue: { ...n, noise: true }, noise: true })));
-  searchResults.appendChild(el('div', 'result-count', '"' + q + '" 검색 결과 ' + all.length + ' 건'));
-  if (!all.length) {
-    searchResults.appendChild(el('div', 'clue-empty', SEARCH_DEFAULT));
-    return;
+  const shown = ranked.filter((r) => r.av === 'open').slice(0, MAX_SHOWN);
+  const lockedShown = ranked.filter((r) => r.av === 'locked').slice(0, MAX_SHOWN - shown.length);
+  const noise = pickNoise(q, shown.length);
+  const realTotal = ranked.length;
+
+  if (!realTotal) {
+    // 진짜 결과가 하나도 없을 때: "결과 없음" 안내 + 오타 제안 + 요령 + 실검. 잡음(광고) 결과는 이것과 별개로 아래에 그대로 뜬다 —
+    // 실제 검색엔진도 그렇듯, 엉뚱한 검색어를 쳐도 관련 없는 광고는 뜰 수 있다.
+    searchResults.appendChild(el('div', 'clue-empty', '\u2018' + q + '\u2019에 대한 검색 결과가 없습니다.'));
+    const dym = didYouMean(q);
+    if (dym) {
+      const line = el('div', 'sr-dym', '이것을 찾으셨나요? ');
+      const a = el('a', '', dym);
+      a.href = '#';
+      a.addEventListener('click', (ev) => { ev.preventDefault(); searchInput.value = dym; runSearch(); });
+      line.appendChild(a);
+      searchResults.appendChild(line);
+    }
+    const tips = document.createElement('ul');
+    tips.className = 'sr-tips';
+    ['단어의 철자가 정확한지 확인해 보세요.', '검색어의 단어 수를 줄이거나, 다른 말로 바꿔 보세요.', '본 페이지 안에 나온 이름·장소·시각을 그대로 검색해 보세요.'].forEach((t) => {
+      const li = document.createElement('li'); li.textContent = t; tips.appendChild(li);
+    });
+    searchResults.appendChild(tips);
+    renderTrendingInto(searchResults);
+  } else {
+    const countMsg = '\u2018' + q + '\u2019 검색 결과 ' + (realTotal + noise.length) + ' 건' + (realTotal > shown.length ? ' \u00b7 상위 ' + shown.length + ' 건만 표시 \u2014 검색어를 더 구체적으로 입력해 보세요' : '');
+    searchResults.appendChild(el('div', 'result-count', countMsg));
   }
-  all.forEach(({ clue, noise: isNoise }) => {
-    const box = el('div', 'result');
-    const title = el('div', 'result-title' + (has(clue.id) ? ' visited' : ''), clue.title);
+  if (!realTotal && !noise.length) return;
+
+  lockedShown.forEach(({ clue }) => {
+    const L = clue.lockAs || {};
+    const box = el('div', 'result sr-locked');
+    box.appendChild(el('div', 'result-title', '🔒 ' + (L.title || '비공개 게시물')));
+    box.appendChild(el('div', 'result-url', pageUrl(clue)));
+    box.appendChild(el('div', 'result-snip', L.text || '권한이 있는 사용자만 볼 수 있습니다.'));
+    searchResults.appendChild(box);
+  });
+
+  const items = shown.map((r) => ({ clue: r.clue, isNoise: false })).concat(noise.map((n) => ({ clue: { ...n, noise: true }, isNoise: true })));
+  items.forEach(({ clue, isNoise }) => {
+    const box = el('div', 'result' + (isNoise ? ' sr-noise' : ''));
+    const visited = !isNoise && myOpened.has(clue.id);
+    const title = el('div', 'result-title' + (visited ? ' visited' : ''), clue.title);
     if (!isNoise && !has(clue.id)) title.appendChild(el('span', 'result-new', 'NEW'));
     title.addEventListener('click', () => {
       openPopup(clue);
@@ -1144,8 +1464,10 @@ function renderSearchResults(q, results) {
     });
     box.appendChild(title);
     box.appendChild(el('div', 'result-url', pageUrl(clue)));
-    box.appendChild(el('div', 'result-snip', clue.body.length > 70 ? clue.body.slice(0, 70) + '…' : clue.body));
-    const rel = SEARCH_RELATED[clue.id];
+    const snip = el('div', 'result-snip');
+    buildSnippetInto(snip, clue, q);
+    box.appendChild(snip);
+    const rel = isNoise ? null : SEARCH_RELATED[clue.id];
     if (rel && rel.length) {
       const relEl = el('div', 'clue-related', '연관 검색어: ');
       rel.forEach((k, i) => {
@@ -1166,11 +1488,42 @@ function renderSearchResults(q, results) {
 }
 function runSearch() {
   const q = searchInput.value.trim();
-  if (!q) return;
+  if (!q) return renderSearchHome();
+  pushHistory(q);
   renderSearchResults(q, runSearchQuery(q));
 }
 searchGo.addEventListener('click', runSearch);
-searchInput.addEventListener('keydown', (e) => e.key === 'Enter' && runSearch());
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') return runSearch();
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const q = historyStep(e.key === 'ArrowUp' ? 1 : -1);
+    if (q !== undefined) { e.preventDefault(); searchInput.value = q; }
+  }
+});
+
+// ===== 검색 데이터 점검 (개발용: 브라우저 콘솔에서 lintSearchData() 실행) =====
+function lintSearchData() {
+  const ids = new Set(SEARCH_CLUES.map((c) => c.id));
+  const kwOwner = {};
+  const report = [];
+  SEARCH_CLUES.forEach((c) => {
+    (c.keywords || []).forEach((k) => {
+      const s = squash(k);
+      if (s.length < 2) report.push('[1글자 키워드] ' + c.id + ': "' + k + '"');
+      (kwOwner[s] = kwOwner[s] || []).push(c.id);
+    });
+    (c.requires || []).forEach((r) => { if (!ids.has(r)) report.push('[없는 requires] ' + c.id + ' \u2192 ' + r); });
+    if (!PAGES[c.id] && !c.page) report.push('[전용 페이지 없음] ' + c.id + ' (DAY ' + c.day + ')');
+  });
+  const corpus = SEARCH_CLUES.map((o) => ({ id: o.id, text: squash(JSON.stringify(PAGES[o.id] || o.body || '') + JSON.stringify(SEARCH_RELATED[o.id] || '')) }));
+  SEARCH_CLUES.forEach((c) => {
+    const inbound = corpus.some((o) => o.id !== c.id && (c.keywords || []).some((k) => squash(k).length >= 2 && o.text.includes(squash(k))));
+    if (!inbound) report.push('[들어오는 길 없음] ' + c.id + ': 키워드가 다른 페이지 어디에도 안 나옴 (NPC 대사·실검에 있다면 무시)');
+  });
+  Object.entries(kwOwner).forEach(([k, owners]) => { if (owners.length > MAX_SHOWN) report.push('[너무 넓은 키워드] "' + k + '" \u2192 ' + owners.length + '개 단서'); });
+  console.log(report.length ? report.join('\n') : '문제 없음');
+  return report;
+}
 
 // ===== 단서 수첩(공유) =====
 function renderNotebook() {
@@ -1425,6 +1778,8 @@ async function enterRoom(code) {
   room.code = code;
   state.threads = loadJSON(dmKey(), null) || freshThreads();
   ROSTER.forEach((n) => { if (!state.threads[n]) state.threads[n] = { history: [] }; });
+  loadOpened();
+  loadSearchHistory();
   state.currentView = 'group';
   await heartbeat();
   subscribeRoom();
